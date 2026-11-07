@@ -6,7 +6,8 @@ import 'package:dale_u/features/ledger/data/datasources/movement_local_datasourc
 import 'package:dale_u/features/orders/data/pan_order_local_datasource.dart';
 import 'package:flutter/foundation.dart';
 
-/// Desactivado + 1 mes sin movimientos: primero nube, luego teléfono.
+/// Desactivado + al día + 1 mes sin movimientos: primero nube, luego
+/// teléfono. Con deuda pendiente no se toca.
 class StaleClientPurger {
   StaleClientPurger({
     required this.clients,
@@ -26,6 +27,8 @@ class StaleClientPurger {
     final uid = InputSanitizer.uid(vendorUid);
     if (uid == null) return 0;
     final inactive = await clients.listInactiveByVendor(uid);
+    if (inactive.isEmpty) return 0;
+    final balances = await movements.balancesByVendor(uid);
     var purged = 0;
     final at = now().toUtc();
     for (final client in inactive) {
@@ -38,6 +41,7 @@ class StaleClientPurger {
         updatedAt: client.updatedAt,
         lastMovementAt: lastMove,
         now: at,
+        balanceCents: balances[client.id] ?? 0,
       )) {
         continue;
       }

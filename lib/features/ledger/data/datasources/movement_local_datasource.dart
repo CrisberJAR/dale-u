@@ -7,7 +7,7 @@ import 'package:uuid/uuid.dart';
 
 abstract class MovementPendingStore {
   Future<List<Movement>> listPending(String vendorUid);
-  Future<void> markSynced(String id);
+  Future<void> markSynced(Movement pushed);
   Future<void> insertIfAbsent(Movement movement);
 }
 
@@ -199,13 +199,22 @@ class MovementLocalDataSource implements MovementPendingStore {
     return (value as num?)?.toInt() ?? 0;
   }
 
+  /// Marca subido solo si la fila sigue igual a lo que se subió. Si el
+  /// vendedor la editó mientras subía, queda pendiente y sube en la próxima.
   @override
-  Future<void> markSynced(String id) async {
+  Future<void> markSynced(Movement pushed) async {
     await database.db.update(
       'movements',
       {'pending_sync': 0},
-      where: 'id = ?',
-      whereArgs: [id],
+      where: 'id = ? AND kind = ? AND amount_cents = ? AND occurred_at = ? '
+          'AND voided = ?',
+      whereArgs: [
+        pushed.id,
+        pushed.kind.name,
+        pushed.amountCents,
+        pushed.occurredAt.millisecondsSinceEpoch,
+        pushed.voided ? 1 : 0,
+      ],
     );
   }
 

@@ -3,6 +3,13 @@
     <uses-permission android:name="android.permission.RECORD_AUDIO"/>
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
+    <!-- Ruta con la pantalla apagada: servicio en primer plano de ubicación.
+         No pide ubicación "todo el tiempo": cuenta como uso de la app. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION"/>
+    <uses-permission android:name="android.permission.WAKE_LOCK"/>
+    <!-- Android 13+: aviso de "en ruta" y "tu panadero está cerca". -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <application
         android:label="Dale U"
         android:name="${applicationName}"
@@ -34,6 +41,13 @@
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
+        <!-- Avisos de cercanía: canal propio, creado en MainActivity. -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_channel_id"
+            android:value="panadero_cerca" />
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_icon"
+            android:resource="@drawable/ic_stat_pan" />
     </application>
     <!-- Required to query activities that can process text, see:
          https://developer.android.com/training/package-visibility and
@@ -48,5 +62,12 @@
         <intent>
             <action android:name="android.speech.action.RECOGNIZE_SPEECH"/>
         </intent>
+        <!-- Abrir WhatsApp y enlaces desde la ficha del cliente. -->
+        <intent>
+            <action android:name="android.intent.action.VIEW"/>
+            <data android:scheme="https"/>
+        </intent>
+        <package android:name="com.whatsapp" />
+        <package android:name="com.whatsapp.w4b" />
     </queries>
 </manifest>

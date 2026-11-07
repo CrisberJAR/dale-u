@@ -1,4 +1,5 @@
 import 'package:dale_u/app/dale_u_app.dart';
+import 'package:dale_u/features/presence/domain/vendor_on_map.dart';
 import 'package:dale_u/core/error/auth_failure.dart';
 import 'package:dale_u/core/error/result.dart';
 import 'package:dale_u/core/theme/look_store.dart';
@@ -287,16 +288,10 @@ class _FakeBuyerRemote implements BuyerRemoteDataSource {
   Future<InviteLookup?> fetchInvite(String code) async => null;
 
   @override
-  Future<void> claimInvite({
+  Future<void> claimAndLink({
     required String code,
     required String buyerUid,
-  }) async {}
-
-  @override
-  Future<void> linkClient({
-    required String vendorUid,
-    required String clientId,
-    required String buyerUid,
+    required LinkedAccount account,
   }) async {}
 
   @override
@@ -309,6 +304,7 @@ class _FakeBuyerRemote implements BuyerRemoteDataSource {
   Future<List<Movement>> fetchMovements({
     required String vendorUid,
     required String clientId,
+    int? limit,
   }) async => const [];
 
   @override
@@ -364,6 +360,9 @@ class _FakeGps implements LocationGateway {
   Future<GeoFix?> readFix() async {
     return const GeoFix(latitude: -12.05, longitude: -77.04);
   }
+
+  @override
+  Stream<GeoFix> watch() => const Stream<GeoFix>.empty();
 }
 
 class _SilentPresenceRemote implements PresenceRemoteDataSource {
@@ -376,6 +375,10 @@ class _SilentPresenceRemote implements PresenceRemoteDataSource {
   @override
   Stream<VendorPresence?> watch(String vendorUid) =>
       const Stream<VendorPresence?>.empty();
+
+  @override
+  Stream<List<VendorOnRoute>> watchAllOnRoute() =>
+      const Stream<List<VendorOnRoute>>.empty();
 }
 
 ({

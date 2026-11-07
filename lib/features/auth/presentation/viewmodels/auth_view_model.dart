@@ -63,10 +63,22 @@ class AuthViewModel extends ChangeNotifier {
     }
   }
 
+  /// Limpieza que necesita la sesión todavía abierta (por ejemplo, borrar
+  /// el token de avisos de este teléfono). Si falla, se cierra igual.
+  Future<void> Function()? beforeSignOut;
+
   Future<void> signOut() async {
     final previous = _status;
     _status = AuthStatus.loading;
     notifyListeners();
+    final cleanup = beforeSignOut;
+    if (cleanup != null) {
+      try {
+        await cleanup().timeout(const Duration(seconds: 5));
+      } catch (error) {
+        debugPrint('Before sign out failed: ${error.runtimeType}');
+      }
+    }
     final result = await signOutUseCase();
     switch (result) {
       case Ok():

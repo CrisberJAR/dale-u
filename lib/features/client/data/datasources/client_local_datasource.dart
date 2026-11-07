@@ -7,7 +7,8 @@ import 'package:uuid/uuid.dart';
 
 abstract class ClientPendingStore {
   Future<List<Client>> listPending(String vendorUid);
-  Future<void> markSynced(String id);
+  /// Marca subido solo si la ficha sigue igual a [pushed].
+  Future<void> markSynced(Client pushed);
   Future<void> insertIfAbsent(Client client);
 }
 
@@ -37,13 +38,19 @@ class ClientLocalDataSource implements ClientPendingStore {
     return rows.map(_fromRow).toList();
   }
 
+  /// Cada cambio local mueve `updated_at`: si no coincide, el vendedor la
+  /// editó mientras subía y sigue pendiente.
   @override
-  Future<void> markSynced(String id) async {
+  Future<void> markSynced(Client pushed) async {
     await database.db.update(
       'clients',
       {'pending_sync': 0},
-      where: 'id = ?',
-      whereArgs: [id],
+      where: 'id = ? AND updated_at = ? AND invite_code = ?',
+      whereArgs: [
+        pushed.id,
+        pushed.updatedAt.millisecondsSinceEpoch,
+        pushed.inviteCode,
+      ],
     );
   }
 

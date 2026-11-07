@@ -13,6 +13,8 @@ import 'package:dale_u/features/role/presentation/viewmodels/admin_accounts_view
 import 'package:dale_u/features/role/presentation/viewmodels/role_view_model.dart';
 import 'package:dale_u/features/presence/presentation/viewmodels/buyer_map_view_model.dart';
 import 'package:dale_u/features/presence/presentation/viewmodels/presence_view_model.dart';
+import 'package:dale_u/features/proximity/data/push_registrar.dart';
+import 'package:dale_u/features/statement/data/statement_link_service.dart';
 import 'package:dale_u/features/radar/presentation/viewmodels/debtor_radar_view_model.dart';
 import 'package:dale_u/features/radar/presentation/widgets/debtor_radar_listener.dart';
 import 'package:dale_u/features/voice/presentation/viewmodels/voice_capture_view_model.dart';
@@ -38,6 +40,8 @@ class DaleUApp extends StatelessWidget {
     DailyCloseViewModel? dailyCloseViewModel,
     VendorNoticeViewModel? vendorNoticeViewModel,
     BuyerNoticeViewModel? buyerNoticeViewModel,
+    this.statementLinks,
+    this.pushRegistrar,
   }) : orderViewModel = orderViewModel ?? OrderViewModel.idle(),
        dailyCloseViewModel =
            dailyCloseViewModel ?? DailyCloseViewModel.idle(),
@@ -61,6 +65,10 @@ class DaleUApp extends StatelessWidget {
   final DailyCloseViewModel dailyCloseViewModel;
   final VendorNoticeViewModel vendorNoticeViewModel;
   final BuyerNoticeViewModel buyerNoticeViewModel;
+
+  /// Opcionales: las pruebas de pantalla corren sin Firebase.
+  final StatementLinkService? statementLinks;
+  final PushRegistrar? pushRegistrar;
 
   @override
   Widget build(BuildContext context) {
@@ -99,11 +107,17 @@ class DaleUApp extends StatelessWidget {
           value: buyerNoticeViewModel,
         ),
         ChangeNotifierProvider<LookViewModel>.value(value: lookViewModel),
+        Provider<StatementLinkService?>.value(value: statementLinks),
+        Provider<PushRegistrar?>.value(value: pushRegistrar),
       ],
       child: const _ThemedApp(),
     );
   }
 }
+
+/// Para avisos rápidos desde servicios (por ejemplo, un push con la app
+/// abierta) sin depender de qué pantalla esté arriba.
+final appMessengerKey = GlobalKey<ScaffoldMessengerState>();
 
 class _ThemedApp extends StatelessWidget {
   const _ThemedApp();
@@ -113,6 +127,7 @@ class _ThemedApp extends StatelessWidget {
     context.watch<LookViewModel>();
     return MaterialApp(
       title: 'Dale U',
+      scaffoldMessengerKey: appMessengerKey,
       debugShowCheckedModeBanner: false,
       locale: const Locale('es', 'PE'),
       supportedLocales: const [

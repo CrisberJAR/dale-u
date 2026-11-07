@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:dale_u/core/error/presence_exception.dart';
 import 'package:dale_u/core/security/input_sanitizer.dart';
 import 'package:dale_u/features/presence/data/datasources/presence_remote_datasource.dart';
+import 'package:dale_u/features/presence/domain/vendor_on_map.dart';
 import 'package:dale_u/features/presence/domain/vendor_presence.dart';
 
 class FirestorePresenceRemoteDataSource implements PresenceRemoteDataSource {
@@ -65,6 +66,24 @@ class FirestorePresenceRemoteDataSource implements PresenceRemoteDataSource {
     });
   }
 
+  @override
+  Stream<List<VendorOnRoute>> watchAllOnRoute() {
+    // Sin filtro a propósito: un filtro en collectionGroup pide un índice
+    // aparte. Son pocos vendedores; se filtra aquí y en el mapa.
+    return firestore.collectionGroup('presence').snapshots().map((snapshot) {
+      final result = <VendorOnRoute>[];
+      for (final doc in snapshot.docs) {
+        if (doc.id != 'current') continue;
+        final vendorUid = InputSanitizer.uid(doc.reference.parent.parent?.id);
+        if (vendorUid == null) continue;
+        final presence = VendorPresence.tryParse(doc.data());
+        if (presence == null || !presence.onRoute) continue;
+        result.add(VendorOnRoute(vendorUid: vendorUid, presence: presence));
+      }
+      return result;
+    });
+  }
+
   DocumentReference<Map<String, dynamic>> _doc(String vendorUid) {
     return firestore
         .collection('vendors')
@@ -76,7 +95,7 @@ class FirestorePresenceRemoteDataSource implements PresenceRemoteDataSource {
   String _mapRead(FirebaseException error) {
     switch (error.code) {
       case 'permission-denied':
-        return 'No puedes ver esa ubicación. ¿Sigues vinculado?';
+        return 'No puedes ver esa ubicación. Vuelve a entrar.';
       case 'unavailable':
       case 'deadline-exceeded':
         return 'Sin señal para ver al panadero.';

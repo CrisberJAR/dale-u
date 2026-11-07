@@ -497,7 +497,38 @@ class _VoiceConsole extends StatelessWidget {
             style: VendorLook.dangerText,
           ),
         ],
+        const _UndoVoiceButton(),
       ],
+    );
+  }
+}
+
+/// Un minuto para corregir si el teléfono entendió mal. También vale decir
+/// "deshacer".
+class _UndoVoiceButton extends StatelessWidget {
+  const _UndoVoiceButton();
+
+  @override
+  Widget build(BuildContext context) {
+    final clients = context.watch<ClientViewModel>();
+    final last = clients.undoableVoice;
+    if (last == null) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: VendorSecondaryButton(
+        label: 'Deshacer: ${last.kind.spokenLabel.toLowerCase()} '
+            'S/ ${formatSoles(last.amountCents)} · ${last.clientName}',
+        size: VendorControlSize.compact,
+        onPressed: clients.saving
+            ? null
+            : () async {
+                final result = await clients.undoLastVoiceMovement();
+                if (!context.mounted) return;
+                await context.read<VoiceCaptureViewModel>().say(
+                  result.message,
+                );
+              },
+      ),
     );
   }
 }

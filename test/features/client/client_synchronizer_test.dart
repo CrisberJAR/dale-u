@@ -13,11 +13,11 @@ class _MemoryLocal implements ClientPendingStore {
       pending.where((c) => c.vendorUid == vendorUid).toList();
 
   @override
-  Future<void> markSynced(String id) async {
-    pending.removeWhere((c) => c.id == id);
-    final current = all[id];
+  Future<void> markSynced(Client pushed) async {
+    pending.removeWhere((c) => c.id == pushed.id);
+    final current = all[pushed.id];
     if (current != null) {
-      all[id] = current.copyWith(pendingSync: false);
+      all[pushed.id] = current.copyWith(pendingSync: false);
     }
   }
 

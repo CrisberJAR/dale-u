@@ -32,17 +32,34 @@ service cloud.firestore {
       return isOwner(vendorId) && isSeller();
     }
 
-    // El comprador ya dejó un marcador al vincularse. Así lee la presencia
-    // sin recorrer fichas ajenas.
+    // El marcador solo no basta: si el vendedor desactivó la ficha o ya no
+    // está vinculada a esta persona, deja de valer (pedidos y avisos).
     function isLinkedBuyerOf(vendorId) {
+      let marker = /databases/$(database)/documents/buyers/$(request.auth.uid)/vendors/$(vendorId);
       return isSignedIn()
-        && exists(/databases/$(database)/documents/buyers/$(request.auth.uid)/vendors/$(vendorId));
+        && exists(marker)
+        && clientStillLinked(vendorId, get(marker).data.clientId, request.auth.uid);
+    }
+
+    function clientStillLinked(vendorId, clientId, buyerId) {
+      let path = /databases/$(database)/documents/vendors/$(vendorId)/clients/$(clientId);
+      return exists(path)
+        && get(path).data.get('linkedUid', '') == buyerId
+        && get(path).data.get('active', true) == true;
     }
 
     function isLinkedReader(vendorId, clientId) {
       return isSignedIn()
-        && get(/databases/$(database)/documents/vendors/$(vendorId)/clients/$(clientId)).data.linkedUid
+        && get(/databases/$(database)/documents/vendors/$(vendorId)/clients/$(clientId)).data.get('linkedUid', '')
           == request.auth.uid;
+    }
+
+    // Campo que solo escribe otro (el comprador o la Cloud Function): el
+    // vendedor puede mandarlo igual que estaba o no mandarlo.
+    function keptFromBefore(data, field, whenNew) {
+      return (resource == null && data.get(field, whenNew) == whenNew)
+        || (resource != null
+          && data.get(field, whenNew) == resource.data.get(field, whenNew));
     }
 
     function validInviteCode(code) {
@@ -54,7 +71,8 @@ service cloud.firestore {
       let data = request.resource.data;
       return data.keys().hasOnly([
           'vendorUid', 'name', 'phone', 'createdAt', 'updatedAt',
-          'active', 'inviteCode', 'linkedUid', 'latitude', 'longitude'
+          'active', 'inviteCode', 'linkedUid', 'latitude', 'longitude',
+          'balanceCents', 'balanceUpdatedAt'
         ])
         && data.vendorUid == vendorId
         && data.vendorUid == request.auth.uid
@@ -67,8 +85,11 @@ service cloud.firestore {
         && data.updatedAt is number
         && data.active is bool
         && validInviteCode(data.inviteCode)
-        && data.linkedUid is string
-        && data.linkedUid.size() <= 128
+        // Solo el comprador se vincula; el vendedor no lo pisa.
+        && keptFromBefore(data, 'linkedUid', '')
+        // El saldo lo calcula la Cloud Function.
+        && keptFromBefore(data, 'balanceCents', null)
+        && keptFromBefore(data, 'balanceUpdatedAt', null)
         && housePinValid(data);
     }
 
@@ -88,19 +109,20 @@ service cloud.firestore {
     function isClaimingClient(vendorId, clientId) {
       let before = resource.data;
       let after = request.resource.data;
+      // getAfter: el comprador toma el código y vincula la ficha en el
+      // mismo lote atómico. Se mira cómo queda la invitación al final.
+      let invitePath = /databases/$(database)/documents/invites/$(before.inviteCode);
       return isSignedIn()
         && before.active == true
         && validInviteCode(before.inviteCode)
-        && (before.linkedUid == '' || before.linkedUid == request.auth.uid)
+        && (before.get('linkedUid', '') == ''
+          || before.get('linkedUid', '') == request.auth.uid)
         && after.linkedUid == request.auth.uid
         && after.diff(before).affectedKeys().hasOnly(['linkedUid', 'updatedAt'])
-        && exists(/databases/$(database)/documents/invites/$(before.inviteCode))
-        && get(/databases/$(database)/documents/invites/$(before.inviteCode)).data.linkedUid
-          == request.auth.uid
-        && get(/databases/$(database)/documents/invites/$(before.inviteCode)).data.vendorUid
-          == vendorId
-        && get(/databases/$(database)/documents/invites/$(before.inviteCode)).data.clientId
-          == clientId;
+        && getAfter(invitePath) != null
+        && getAfter(invitePath).data.get('linkedUid', '') == request.auth.uid
+        && getAfter(invitePath).data.vendorUid == vendorId
+        && getAfter(invitePath).data.clientId == clientId;
     }
 
     function invitePayloadValid() {
@@ -112,8 +134,8 @@ service cloud.firestore {
         && data.clientId is string
         && data.clientId.matches('^[A-Za-z0-9_-]{8,64}$')
         && data.active is bool
-        && data.linkedUid is string
-        && data.linkedUid.size() <= 128
+        // El vendedor no toca quién tomó el código.
+        && keptFromBefore(data, 'linkedUid', '')
         && data.vendorName is string
         && data.vendorName.size() <= 80;
     }
@@ -123,7 +145,8 @@ service cloud.firestore {
       let after = request.resource.data;
       return isSignedIn()
         && before.active == true
-        && (before.linkedUid == '' || before.linkedUid == request.auth.uid)
+        && (before.get('linkedUid', '') == ''
+          || before.get('linkedUid', '') == request.auth.uid)
         && after.linkedUid == request.auth.uid
         && after.vendorUid == before.vendorUid
         && after.clientId == before.clientId
@@ -145,7 +168,7 @@ service cloud.firestore {
         && data.vendorName is string
         && data.vendorName.size() <= 80
         && data.linkedAt is number
-        && get(/databases/$(database)/documents/vendors/$(data.vendorUid)/clients/$(data.clientId)).data.linkedUid
+        && getAfter(/databases/$(database)/documents/vendors/$(data.vendorUid)/clients/$(data.clientId)).data.get('linkedUid', '')
           == buyerId;
     }
 
@@ -153,7 +176,7 @@ service cloud.firestore {
       let data = request.resource.data;
       return data.keys().hasOnly([
           'vendorUid', 'clientId', 'kind', 'amountCents',
-          'occurredAt', 'createdAt', 'voided'
+          'occurredAt', 'createdAt', 'voided', 'updatedAt'
         ])
         && data.vendorUid == vendorId
         && data.clientId == clientId
@@ -164,7 +187,9 @@ service cloud.firestore {
         && data.amountCents <= 1000000000
         && data.occurredAt is number
         && data.createdAt is number
-        && data.voided is bool;
+        && data.voided is bool
+        // Hora del servidor: la bajada incremental se guía por ella.
+        && data.updatedAt == request.time;
     }
 
     // users/{uid}: la cuenta y su rol. Cada quien nace cliente.
@@ -242,8 +267,8 @@ service cloud.firestore {
             && data.updatedAt is number;
         }
 
-        allow read: if docId == 'current'
-          && (isOwner(vendorId) || isLinkedBuyerOf(vendorId));
+        // Cualquiera con sesión ve la ruta, deba o no.
+        allow read: if docId == 'current' && isSignedIn();
         allow create, update: if docId == 'current'
           && isSellingOwner(vendorId)
           && (presenceOnRouteValid() || presenceOffRouteValid());
@@ -300,7 +325,7 @@ service cloud.firestore {
         return data.keys().hasOnly(['clientId'])
           && data.clientId is string
           && data.clientId.matches('^[A-Za-z0-9_-]{8,64}$')
-          && get(/databases/$(database)/documents/vendors/$(vendorId)/clients/$(data.clientId)).data.linkedUid
+          && getAfter(/databases/$(database)/documents/vendors/$(vendorId)/clients/$(data.clientId)).data.get('linkedUid', '')
             == buyerId;
       }
 
@@ -330,8 +355,10 @@ service cloud.firestore {
       }
 
       function vendorMayAlertBuyer() {
+        let marker = /databases/$(database)/documents/buyers/$(buyerId)/vendors/$(vendorId);
         return isSellingOwner(vendorId)
-          && exists(/databases/$(database)/documents/buyers/$(buyerId)/vendors/$(vendorId));
+          && exists(marker)
+          && clientStillLinked(vendorId, get(marker).data.clientId, buyerId);
       }
 
       allow read: if isSignedIn() && request.auth.uid == buyerId;
@@ -355,7 +382,7 @@ service cloud.firestore {
 
     match /vendors/{vendorId}/clients/{clientId} {
       allow read: if isOwner(vendorId)
-        || (isSignedIn() && resource.data.linkedUid == request.auth.uid);
+        || (isSignedIn() && resource.data.get('linkedUid', '') == request.auth.uid);
       allow create: if isSellingOwner(vendorId)
         && clientId.matches('^[A-Za-z0-9_-]{8,64}$')
         && clientPayloadValid(vendorId);
@@ -373,6 +400,60 @@ service cloud.firestore {
           && movementPayloadValid(vendorId, clientId);
         allow delete: if isSellingOwner(vendorId);
       }
+    }
+
+    // Teléfonos de cada cuenta para el aviso "tu panadero está cerca".
+    // Un documento por instalación. Solo la Cloud Function los usa.
+    match /users/{userId}/devices/{deviceId} {
+      function devicePayloadValid() {
+        let data = request.resource.data;
+        return data.keys().hasOnly(['token', 'platform', 'updatedAt'])
+          && data.token is string
+          && data.token.size() >= 20
+          && data.token.size() <= 4096
+          && data.platform in ['android', 'ios']
+          && data.updatedAt is number;
+      }
+
+      allow read, delete: if isSignedIn() && request.auth.uid == userId;
+      allow create, update: if isSignedIn()
+        && request.auth.uid == userId
+        && deviceId.matches('^[A-Za-z0-9_-]{8,64}$')
+        && devicePayloadValid();
+    }
+
+    // Enlace del estado de cuenta que el vendedor manda por WhatsApp.
+    // El token es largo y aleatorio. Nadie lo lee desde la app: la página
+    // la arma la Cloud Function con permisos de servidor.
+    match /statementLinks/{token} {
+      function statementLinkValid() {
+        let data = request.resource.data;
+        return token.matches('^[A-Za-z0-9]{32,64}$')
+          && data.keys().hasOnly(['vendorUid', 'clientId', 'createdAt'])
+          && data.vendorUid == request.auth.uid
+          && data.clientId is string
+          && data.clientId.matches('^[A-Za-z0-9_-]{8,64}$')
+          && data.createdAt is number
+          && exists(/databases/$(database)/documents/vendors/$(request.auth.uid)/clients/$(data.clientId));
+      }
+
+      allow read: if false;
+      allow create: if isSeller() && statementLinkValid();
+      allow update: if isSeller()
+        && resource.data.vendorUid == request.auth.uid
+        && statementLinkValid();
+      allow delete: if isSeller() && resource.data.vendorUid == request.auth.uid;
+    }
+
+    // Mapa: todos los vendedores en ruta en una sola consulta.
+    match /{path=**}/presence/{docId} {
+      allow read: if isSignedIn();
+    }
+
+    // Bajada incremental: el vendedor lee solo sus movimientos.
+    match /{path=**}/movements/{movementId} {
+      allow read: if isSignedIn()
+        && resource.data.vendorUid == request.auth.uid;
     }
   }
 }

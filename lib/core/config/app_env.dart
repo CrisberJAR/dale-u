@@ -41,6 +41,17 @@ final class AppEnv {
   /// Client ID iOS. Se pasa a `GoogleSignIn.initialize` (no va en Info.plist).
   static const googleIosClientId = String.fromEnvironment('GOOGLE_IOS_CLIENT_ID');
 
+  /// Dónde vive la página del estado de cuenta (Firebase Hosting). Opcional:
+  /// por defecto `https://<proyecto>.web.app`.
+  static const _statementBaseUrl = String.fromEnvironment(
+    'STATEMENT_BASE_URL',
+  );
+
+  static String get statementBaseUrl {
+    if (_statementBaseUrl.trim().isNotEmpty) return _statementBaseUrl.trim();
+    return 'https://$firebaseProjectId.web.app';
+  }
+
   static bool get _isIos =>
       !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
 

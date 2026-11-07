@@ -1,4 +1,8 @@
 import 'package:dale_u/core/format/money.dart';
+import 'package:dale_u/features/auth/presentation/viewmodels/auth_view_model.dart';
+import 'package:dale_u/features/statement/data/statement_link_service.dart';
+import 'package:dale_u/features/statement/domain/statement.dart';
+import 'package:dale_u/features/statement/presentation/statement_actions.dart';
 import 'package:dale_u/core/theme/vendor_look.dart';
 import 'package:dale_u/features/client/domain/entities/client.dart';
 import 'package:dale_u/features/client/presentation/pages/add_client_page.dart';
@@ -42,7 +46,8 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
             style: VendorLook.subtitle,
           ),
           content: Text(
-            'Se oculta de la ruta. Si pasa un mes sin fiados ni pagos, se borra del todo para no llenar la libreta.',
+            'Se oculta de la ruta. Solo se puede si está al día (sin deuda). '
+            'Si pasa un mes sin fiados ni pagos, se borra del todo para no llenar la libreta.',
             style: VendorLook.body,
           ),
           actions: [
@@ -65,6 +70,46 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
     final ok = await context.read<ClientViewModel>().deactivateClient(client.id);
     if (!mounted) return;
     if (ok) Navigator.of(context).pop();
+  }
+
+  bool _sharing = false;
+
+  Statement _statementOf(ClientViewModel viewModel, Client client) {
+    return Statement(
+      vendorName: context.read<AuthViewModel>().session?.displayName ?? '',
+      clientName: client.name,
+      movements: viewModel.openMovements,
+      balanceCents: viewModel.balanceCents(client.id),
+      generatedAt: DateTime.now(),
+    );
+  }
+
+  Future<void> _remind(ClientViewModel viewModel, Client client) async {
+    if (_sharing) return;
+    setState(() => _sharing = true);
+    try {
+      await sendWhatsAppReminder(
+        context,
+        statement: _statementOf(viewModel, client),
+        phone: client.phone,
+        vendorUid: client.vendorUid,
+        clientId: client.id,
+        links: context.read<StatementLinkService?>(),
+        beforeLink: viewModel.syncNow,
+      );
+    } finally {
+      if (mounted) setState(() => _sharing = false);
+    }
+  }
+
+  Future<void> _sharePdf(ClientViewModel viewModel, Client client) async {
+    if (_sharing) return;
+    setState(() => _sharing = true);
+    try {
+      await shareStatementPdf(context, _statementOf(viewModel, client));
+    } finally {
+      if (mounted) setState(() => _sharing = false);
+    }
   }
 
   @override
@@ -151,6 +196,32 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
                           style: VendorLook.dangerText,
                         ),
                       ],
+                      const SizedBox(height: 10),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: VendorPrimaryButton(
+                              label: 'Cobrar por WhatsApp',
+                              icon: Icons.chat,
+                              size: VendorControlSize.compact,
+                              busy: _sharing,
+                              onPressed: _sharing
+                                  ? null
+                                  : () => _remind(viewModel, client),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: VendorSecondaryButton(
+                              label: 'PDF',
+                              size: VendorControlSize.compact,
+                              onPressed: _sharing
+                                  ? null
+                                  : () => _sharePdf(viewModel, client),
+                            ),
+                          ),
+                        ],
+                      ),
                       const SizedBox(height: 12),
                       Row(
                         children: [
