@@ -1,0 +1,7 @@
+# Referencia. El archivo real android/local.properties está gitignored.
+# Flutter ya escribe sdk.dir y flutter.sdk. Puedes anotar aquí el client ID
+# web para tu propio recordatorio; la app lo lee desde .env (no desde aquí).
+#
+# sdk.dir=C:\\Users\\TU_USUARIO\\AppData\\Local\\Android\\sdk
+# flutter.sdk=C:\\src\\flutter
+# GOOGLE_WEB_CLIENT_ID=123456789-xxxx.apps.googleusercontent.com

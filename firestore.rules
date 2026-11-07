@@ -1,0 +1,378 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(vendorId) {
+      return isSignedIn() && request.auth.uid == vendorId;
+    }
+
+    // El rol vive en la nube: el teléfono no puede declararse vendedor.
+    function hasAccount() {
+      return isSignedIn()
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    function myRole() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
+    }
+
+    function isSeller() {
+      return hasAccount() && (myRole() == 'vendedor' || myRole() == 'admin');
+    }
+
+    function isAdmin() {
+      return hasAccount() && myRole() == 'admin';
+    }
+
+    // Solo quien vende puede escribir su propia ruta.
+    function isSellingOwner(vendorId) {
+      return isOwner(vendorId) && isSeller();
+    }
+
+    // El comprador ya dejó un marcador al vincularse. Así lee la presencia
+    // sin recorrer fichas ajenas.
+    function isLinkedBuyerOf(vendorId) {
+      return isSignedIn()
+        && exists(/databases/$(database)/documents/buyers/$(request.auth.uid)/vendors/$(vendorId));
+    }
+
+    function isLinkedReader(vendorId, clientId) {
+      return isSignedIn()
+        && get(/databases/$(database)/documents/vendors/$(vendorId)/clients/$(clientId)).data.linkedUid
+          == request.auth.uid;
+    }
+
+    function validInviteCode(code) {
+      return code is string
+        && code.matches('^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{6}$');
+    }
+
+    function clientPayloadValid(vendorId) {
+      let data = request.resource.data;
+      return data.keys().hasOnly([
+          'vendorUid', 'name', 'phone', 'createdAt', 'updatedAt',
+          'active', 'inviteCode', 'linkedUid', 'latitude', 'longitude'
+        ])
+        && data.vendorUid == vendorId
+        && data.vendorUid == request.auth.uid
+        && data.name is string
+        && data.name.size() >= 2
+        && data.name.size() <= 80
+        && data.phone is string
+        && data.phone.size() <= 20
+        && data.createdAt is number
+        && data.updatedAt is number
+        && data.active is bool
+        && validInviteCode(data.inviteCode)
+        && data.linkedUid is string
+        && data.linkedUid.size() <= 128
+        && housePinValid(data);
+    }
+
+    function housePinValid(data) {
+      let hasLat = data.keys().hasAny(['latitude']);
+      let hasLng = data.keys().hasAny(['longitude']);
+      return (hasLat == hasLng)
+        && (!hasLat
+          || (data.latitude is number
+            && data.latitude >= -90
+            && data.latitude <= 90
+            && data.longitude is number
+            && data.longitude >= -180
+            && data.longitude <= 180));
+    }
+
+    function isClaimingClient(vendorId, clientId) {
+      let before = resource.data;
+      let after = request.resource.data;
+      return isSignedIn()
+        && before.active == true
+        && validInviteCode(before.inviteCode)
+        && (before.linkedUid == '' || before.linkedUid == request.auth.uid)
+        && after.linkedUid == request.auth.uid
+        && after.diff(before).affectedKeys().hasOnly(['linkedUid', 'updatedAt'])
+        && exists(/databases/$(database)/documents/invites/$(before.inviteCode))
+        && get(/databases/$(database)/documents/invites/$(before.inviteCode)).data.linkedUid
+          == request.auth.uid
+        && get(/databases/$(database)/documents/invites/$(before.inviteCode)).data.vendorUid
+          == vendorId
+        && get(/databases/$(database)/documents/invites/$(before.inviteCode)).data.clientId
+          == clientId;
+    }
+
+    function invitePayloadValid() {
+      let data = request.resource.data;
+      return data.keys().hasOnly([
+          'vendorUid', 'clientId', 'active', 'linkedUid', 'vendorName'
+        ])
+        && data.vendorUid is string
+        && data.clientId is string
+        && data.clientId.matches('^[A-Za-z0-9_-]{8,64}$')
+        && data.active is bool
+        && data.linkedUid is string
+        && data.linkedUid.size() <= 128
+        && data.vendorName is string
+        && data.vendorName.size() <= 80;
+    }
+
+    function isClaimingInvite() {
+      let before = resource.data;
+      let after = request.resource.data;
+      return isSignedIn()
+        && before.active == true
+        && (before.linkedUid == '' || before.linkedUid == request.auth.uid)
+        && after.linkedUid == request.auth.uid
+        && after.vendorUid == before.vendorUid
+        && after.clientId == before.clientId
+        && after.active == before.active
+        && after.diff(before).affectedKeys().hasOnly(['linkedUid']);
+    }
+
+    // buyers/{uid}/links: la libreta del comprador. Un marcador por vendedor.
+    // No da permisos: leer la deuda sigue dependiendo de linkedUid en la ficha.
+    function linkPayloadValid(buyerId) {
+      let data = request.resource.data;
+      return data.keys().hasOnly([
+          'vendorUid', 'clientId', 'vendorName', 'linkedAt'
+        ])
+        && data.vendorUid is string
+        && data.vendorUid.size() <= 128
+        && data.clientId is string
+        && data.clientId.matches('^[A-Za-z0-9_-]{8,64}$')
+        && data.vendorName is string
+        && data.vendorName.size() <= 80
+        && data.linkedAt is number
+        && get(/databases/$(database)/documents/vendors/$(data.vendorUid)/clients/$(data.clientId)).data.linkedUid
+          == buyerId;
+    }
+
+    function movementPayloadValid(vendorId, clientId) {
+      let data = request.resource.data;
+      return data.keys().hasOnly([
+          'vendorUid', 'clientId', 'kind', 'amountCents',
+          'occurredAt', 'createdAt', 'voided'
+        ])
+        && data.vendorUid == vendorId
+        && data.clientId == clientId
+        && data.vendorUid == request.auth.uid
+        && (data.kind == 'fiado' || data.kind == 'pago')
+        && data.amountCents is number
+        && data.amountCents >= 1
+        && data.amountCents <= 1000000000
+        && data.occurredAt is number
+        && data.createdAt is number
+        && data.voided is bool;
+    }
+
+    // users/{uid}: la cuenta y su rol. Cada quien nace cliente.
+    match /users/{userId} {
+      function selfSignupValid() {
+        let data = request.resource.data;
+        return data.keys().hasOnly([
+            'role', 'email', 'displayName', 'createdAt', 'updatedAt'
+          ])
+          && data.role == 'cliente'
+          && data.email is string
+          && data.email.size() <= 254
+          && data.displayName is string
+          && data.displayName.size() <= 80
+          && data.createdAt is number
+          && data.updatedAt is number;
+      }
+
+      function adminRoleChangeValid() {
+        let data = request.resource.data;
+        return data.diff(resource.data).affectedKeys().hasOnly([
+            'role', 'updatedAt'
+          ])
+          && (data.role == 'cliente' || data.role == 'vendedor'
+            || data.role == 'admin')
+          && data.updatedAt is number
+          // Nadie cambia su propio rol: no te subes solo ni te dejas fuera.
+          && request.auth.uid != userId;
+      }
+
+      allow get: if isSignedIn() && (request.auth.uid == userId || isAdmin());
+      allow list: if isAdmin();
+      allow create: if isSignedIn()
+        && request.auth.uid == userId
+        && selfSignupValid();
+      allow update: if isAdmin() && adminRoleChangeValid();
+      allow delete: if false;
+    }
+
+    // vendors/{uid}: lo único público del vendedor, su nombre visible.
+    // Sirve para que el comprador vea a quién le debe, no un código.
+    match /vendors/{vendorId} {
+      function vendorNameValid() {
+        let data = request.resource.data;
+        return data.keys().hasOnly(['displayName', 'updatedAt'])
+          && data.displayName is string
+          && data.displayName.size() > 0
+          && data.displayName.size() <= 80
+          && data.updatedAt is number;
+      }
+
+      allow read: if isSignedIn();
+      allow create, update: if isSellingOwner(vendorId) && vendorNameValid();
+      allow delete: if false;
+
+      // Un solo punto. No va en el documento público del nombre.
+      match /presence/{docId} {
+        function presenceOnRouteValid() {
+          let data = request.resource.data;
+          return data.keys().hasOnly(['onRoute', 'latitude', 'longitude', 'updatedAt'])
+            && data.onRoute == true
+            && data.latitude is number
+            && data.latitude >= -90
+            && data.latitude <= 90
+            && data.longitude is number
+            && data.longitude >= -180
+            && data.longitude <= 180
+            && data.updatedAt is number;
+        }
+
+        function presenceOffRouteValid() {
+          let data = request.resource.data;
+          return data.keys().hasOnly(['onRoute', 'updatedAt'])
+            && data.onRoute == false
+            && data.updatedAt is number;
+        }
+
+        allow read: if docId == 'current'
+          && (isOwner(vendorId) || isLinkedBuyerOf(vendorId));
+        allow create, update: if docId == 'current'
+          && isSellingOwner(vendorId)
+          && (presenceOnRouteValid() || presenceOffRouteValid());
+        allow delete: if false;
+      }
+
+      match /inbox/{buyerId} {
+        function panFromBuyerValid() {
+          let data = request.resource.data;
+          return isSignedIn()
+            && request.auth.uid == buyerId
+            && isLinkedBuyerOf(vendorId)
+            && data.keys().hasOnly([
+                'buyerUid', 'clientId', 'clientName', 'createdAt', 'seen'
+              ])
+            && data.buyerUid == buyerId
+            && data.clientId is string
+            && data.clientId.matches('^[A-Za-z0-9_-]{8,64}$')
+            && data.clientName is string
+            && data.clientName.size() >= 2
+            && data.clientName.size() <= 80
+            && data.createdAt is number
+            && data.seen == false
+            && get(/databases/$(database)/documents/buyers/$(buyerId)/vendors/$(vendorId)).data.clientId
+              == data.clientId;
+        }
+
+        function panSeenByVendor() {
+          return isSellingOwner(vendorId)
+            && resource != null
+            && request.resource.data.diff(resource.data).affectedKeys()
+              .hasOnly(['seen'])
+            && request.resource.data.seen == true;
+        }
+
+        allow read: if isOwner(vendorId)
+          || (isSignedIn() && request.auth.uid == buyerId);
+        allow create, update: if panFromBuyerValid() || panSeenByVendor();
+        allow delete: if isSellingOwner(vendorId);
+      }
+    }
+
+    match /buyers/{buyerId}/links/{linkId} {
+      allow read, delete: if isSignedIn() && request.auth.uid == buyerId;
+      allow create, update: if isSignedIn()
+        && request.auth.uid == buyerId
+        && linkPayloadValid(buyerId);
+    }
+
+    // Índice por vendedor: sirve para leer su GPS, no la deuda.
+    match /buyers/{buyerId}/vendors/{vendorId} {
+      function vendorMarkerValid() {
+        let data = request.resource.data;
+        return data.keys().hasOnly(['clientId'])
+          && data.clientId is string
+          && data.clientId.matches('^[A-Za-z0-9_-]{8,64}$')
+          && get(/databases/$(database)/documents/vendors/$(vendorId)/clients/$(data.clientId)).data.linkedUid
+            == buyerId;
+      }
+
+      allow read, delete: if isSignedIn() && request.auth.uid == buyerId;
+      allow create, update: if isSignedIn()
+        && request.auth.uid == buyerId
+        && vendorMarkerValid();
+    }
+
+    // Aviso del vendedor a un comprador vinculado. Un doc por vendedor.
+    match /buyers/{buyerId}/alerts/{vendorId} {
+      function alertPayloadValid() {
+        let data = request.resource.data;
+        return data.keys().hasOnly([
+            'vendorUid', 'vendorName', 'body', 'createdAt', 'seen'
+          ])
+          && data.vendorUid == vendorId
+          && data.vendorUid == request.auth.uid
+          && data.vendorName is string
+          && data.vendorName.size() > 0
+          && data.vendorName.size() <= 80
+          && data.body is string
+          && data.body.size() >= 2
+          && data.body.size() <= 200
+          && data.createdAt is number
+          && data.seen == false;
+      }
+
+      function vendorMayAlertBuyer() {
+        return isSellingOwner(vendorId)
+          && exists(/databases/$(database)/documents/buyers/$(buyerId)/vendors/$(vendorId));
+      }
+
+      allow read: if isSignedIn() && request.auth.uid == buyerId;
+      allow create, update: if vendorMayAlertBuyer() && alertPayloadValid();
+      allow delete: if isSignedIn() && request.auth.uid == buyerId;
+    }
+
+    match /invites/{code} {
+      allow read: if isSignedIn() && validInviteCode(code);
+      allow create: if isSeller()
+        && validInviteCode(code)
+        && request.auth.uid == request.resource.data.vendorUid
+        && invitePayloadValid();
+      allow update: if validInviteCode(code) && (
+        (isSeller() && request.auth.uid == resource.data.vendorUid
+          && invitePayloadValid())
+        || isClaimingInvite()
+      );
+      allow delete: if isSeller() && request.auth.uid == resource.data.vendorUid;
+    }
+
+    match /vendors/{vendorId}/clients/{clientId} {
+      allow read: if isOwner(vendorId)
+        || (isSignedIn() && resource.data.linkedUid == request.auth.uid);
+      allow create: if isSellingOwner(vendorId)
+        && clientId.matches('^[A-Za-z0-9_-]{8,64}$')
+        && clientPayloadValid(vendorId);
+      allow update: if (
+        isSellingOwner(vendorId)
+          && clientId.matches('^[A-Za-z0-9_-]{8,64}$')
+          && clientPayloadValid(vendorId)
+      ) || isClaimingClient(vendorId, clientId);
+      allow delete: if isSellingOwner(vendorId);
+
+      match /movements/{movementId} {
+        allow read: if isOwner(vendorId) || isLinkedReader(vendorId, clientId);
+        allow create, update: if isSellingOwner(vendorId)
+          && movementId.matches('^[A-Za-z0-9_-]{8,64}$')
+          && movementPayloadValid(vendorId, clientId);
+        allow delete: if isSellingOwner(vendorId);
+      }
+    }
+  }
+}

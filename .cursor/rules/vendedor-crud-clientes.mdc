@@ -1,0 +1,59 @@
+---
+description: Recordatorio — CRUD de clientes y movimientos
+alwaysApply: true
+---
+
+# Corregir datos (vendedor)
+
+Al retomar, recordar el estado. No reabrir trabajo ya hecho.
+
+## Clientes
+
+- Crear, leer, **editar** y **desactivar**: sí (ficha al pulsar el cliente).
+- Desactivar oculta de la ruta. Fiados y pagos se quedan.
+- Purga a los **30 días** sin movimientos: cliente desactivado se
+  borra del todo (local y nube) para no llenar la libreta. Si no hay
+  señal, se espera: borrar solo en el teléfono lo reviviría al sincronizar.
+- Pedido/recordatorio: texto libre + día, **sin** elegir cliente (puede
+  ser alguien que no está en la ruta). Al marcar **Listo** se borra.
+- Código de vinculación en la ficha: sí.
+
+## Fiados y pagos
+
+- Anotar por voz: sí (2.5).
+- **Anotar a mano** desde la ficha (botón +): sí. Monto + fecha/hora.
+- Consulta de deuda por voz: sí (2.6).
+- **Editar** monto/tipo/fecha y **anular**: sí (desde la ficha del cliente).
+- Anulado no cuenta para la deuda; el rastro se queda.
+- Sync Firestore de movimientos: sí (local primero, luego nube).
+- **Cuadre del día**: totales de fiados y pagos (hora Perú), sin anulados.
+
+## Aviso masivo (vendedor → compradores con app)
+
+- Botón **Avisar** en Mi ruta. Texto libre. Solo llega a clientes **vinculados**.
+- Banner en Mi cuenta del comprador. **Entendido** borra el aviso.
+- Sin FCM: se ve al abrir la app (o si ya está abierta). Firestore, sin costo extra.
+- Ruta: `buyers/{buyerUid}/alerts/{vendorUid}`.
+
+## Cliente comprador (3.1)
+
+- Vincular con código de 6 letras: sí.
+- Ver saldo e historial (solo lectura): sí.
+- **Varios vendedores desde una sola cuenta**: sí. Libreta en
+  `buyers/{uid}/links`, una tarjeta por vendedor y un total. El marcador no
+  da permisos: leer la deuda depende de `linkedUid` en la ficha.
+- El nombre del vendedor viaja en la invitación para mostrarlo al comprador.
+
+## Roles (en la nube, no en el teléfono)
+
+- `users/{uid}` en Firestore manda: `cliente`, `vendedor`, `admin`.
+- Nadie elige rol en la app. Quien entra por primera vez nace **cliente**.
+- Solo el **admin** sube a otros a vendedor o admin, y **no puede cambiar su
+  propio rol** (para no dejar el sistema sin administrador).
+- El primer admin se pone a mano en la consola de Firebase.
+- El rol se guarda en el teléfono solo para abrir la pantalla correcta sin
+  señal. No da permisos: las reglas de Firestore mandan.
+
+## Pendiente (no implementar hasta que lo pidan)
+
+- Fase 3.2+: GPS, mapa, avisos, mensajes.

@@ -1,0 +1,66 @@
+# PROMPT DE INSTRUCCIONES PARA CURSOR: DESARROLLO PASO A PASO DE APP DE RUTA (PANADERÍA)
+
+Actúa como un Desarrollador Mobile Senior especialista en Android/Flutter, seguridad de software, bases de datos offline-first y arquitecturas escalables.
+
+Vas a guiarme e implementar conmigo una aplicación móvil nativa/multiplataforma para una ruta de venta de pan. El usuario principal es una persona mayor con visión reducida (requiere voz y textos gigantes) y los usuarios secundarios son vendedores en ruta y clientes compradores.
+
+---
+
+## 🎯 OBJETIVO Y METODOLOGÍA DE TRABAJO (REGLA DE ORO)
+
+1. **TRABAJO MODULAR Y POR SUBFASES:**
+   - Trabajarás **ÚNICAMENTE UNA SUBFASE A LA VEZ**.
+   - No generes código de subfases futuras sin mi autorización previa.
+   - Para cada subfase debes proporcionar:
+     a) Explicación clara de lo que se va a hacer.
+     b) Código modular, limpio y documentado.
+     c) Instrucciones precisas sobre qué probar y cómo validar que la subfase está 100% terminada.
+
+2. **RENDIMIENTO Y RENDIMIENTO LOCAL (ULTRA RÁPIDO):**
+   - **Cero latencia por APIs innecesarias:** Usa reconocedor de voz nativo (Speech-to-Text) y sintetizador nativo (Text-to-Speech) del teléfono. No uses APIs externas para el procesamiento de voz en vivo.
+   - **Enfoque Offline-First:** Toda operación de fiado o cobro debe guardarse INSTANTÁNEAMENTE en la base de datos local (Room/SQLite) para no depender de la señal en carretera. La sincronización con Firebase Firestore debe ocurrir en segundo plano.
+
+3. **SEGURIDAD Y BUENAS PRÁCTICAS DESDE EL DÍA 1:**
+   - **Seguridad en Firebase:** Configura reglas de seguridad estrictas en Firestore/Realtime Database para evitar que los clientes lean datos de otros usuarios o que usuarios no autenticados alteren montos.
+   - **Manejo de variables sensibles:** Usa `local.properties` o `.env` para llaves de Firebase/Google Sign-In. Nunca expongas credenciales en hardcode.
+   - **Validación de entradas:** Sanitiza entradas de texto/voz para evitar inyecciones en la base de datos o cierres inesperados (crashes).
+   - **Principio de Mínimo Privilegio:** Solicita permisos en tiempo de ejecución (GPS, Micrófono) solo cuando se vayan a usar.
+
+4. **ESCALABILIDAD Y ARQUITECTURA:**
+   - Aplica **Clean Architecture / MVVM**. Mantén la lógica de negocio separada de la interfaz de usuario.
+   - El código debe estar listo para crecer (por ejemplo, para agregar mapas en tiempo real, geofencing de deudores o nuevos roles en el futuro sin reescribir la base).
+
+---
+
+## 🗺️ HOJA DE RUTA Y FASES DE DESARROLLO
+
+### FASE 1: Base de Datos, Autenticación y Estructura Multi-Rol
+- **Subfase 1.1:** Configuración del proyecto base e inicio de sesión con Google Sign-In.
+- **Subfase 1.2:** Selección de Rol en la app (Vendedor vs. Cliente).
+- **Subfase 1.3:** Registro y almacenamiento local de Clientes (Room/SQLite - Offline First).
+- **Subfase 1.4:** Sincronización automática de datos en segundo plano con Firebase Firestore.
+
+### FASE 2: Motor de Voz Local Rápido e Interfaz de Accesibilidad
+- **Subfase 2.1:** Interfaz de usuario para Vendedor (alto contraste, botones gigantes, diseño adaptado).
+- **Subfase 2.2:** Captura de voz local nativa (Speech-to-Text instantáneo).
+- **Subfase 2.3:** Respuesta auditiva por altavoz (Text-to-Speech nativo).
+- **Subfase 2.4:** Algoritmo local de comandos para "Nuevo Cliente" (sin llamadas a servidor).
+- **Subfase 2.5:** Algoritmo local de comandos para "Anotar Fiado" y "Anotar Pago" con sello de fecha/hora.
+- **Subfase 2.6:** Algoritmo local de consulta de deuda por voz.
+
+### FASE 3: Módulo Cliente, Rastreo GPS y Mensajería
+- **Subfase 3.1:** Vista del Cliente (Consulta transparente de saldos e historial de fiados/pagos).
+- **Subfase 3.2:** Transmisión de ubicación GPS en segundo plano desde el vendedor.
+- **Subfase 3.3:** Mapa en tiempo real para la vista de los Clientes.
+- **Subfase 3.4:** Sistema de Notificaciones Push de proximidad ("Panadero Cerca" a <300m).
+- **Subfase 3.5:** Mensajería rápida de cliente a vendedor ("Déjame Pan").
+
+### FASE 4: Geofencing de Deudores para Vendedor (Fase Futura)
+- **Subfase 4.1:** Captura y guardado de coordenadas de la casa del cliente.
+- **Subfase 4.2:** Radar de proximidad a deudores con alerta por voz automática para el vendedor.
+
+---
+
+## 🚀 INSTRUCCIÓN DE INICIO:
+
+Comprende todo el plan anterior y confírmame que estás listo. Para iniciar, dame únicamente el código y la guía paso a paso para ejecutar la **SUBFASE 1.1 (Proyecto base e Inicio de Sesión con Google Sign-In)** garantizando la seguridad de los tokens de autenticación y la escalabilidad del proyecto.
