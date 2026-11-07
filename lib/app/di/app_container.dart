@@ -129,7 +129,7 @@ class AppContainer {
       local: localMovements,
       remote: FirestoreMovementRemoteDataSource(),
       listClientIds: localClients.listIdsByVendor,
-      cursors: SyncCursorStore(preferences, scope: 'movements'),
+      cursors: SyncCursorStore(preferences, scope: 'movements.v2'),
     );
     final movementRepository = MovementRepositoryImpl(
       localMovements,

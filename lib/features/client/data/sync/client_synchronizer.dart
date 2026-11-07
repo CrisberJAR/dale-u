@@ -20,15 +20,30 @@ class ClientSynchronizer {
 
   bool _running = false;
   bool _again = false;
+  Future<void>? _inFlight;
 
+  /// Si ya corre, espera a que termine (con la vuelta extra incluida):
+  /// quien sincroniza movimientos justo después necesita los clientes ya
+  /// en SQLite, o la bajada completa de movimientos sale vacía.
   Future<void> sync(String vendorUid) async {
     final uid = InputSanitizer.uid(vendorUid);
     if (uid == null) return;
     if (_running) {
       _again = true;
+      await _inFlight;
       return;
     }
     _running = true;
+    final run = _run(uid);
+    _inFlight = run;
+    try {
+      await run;
+    } finally {
+      _inFlight = null;
+    }
+  }
+
+  Future<void> _run(String uid) async {
     try {
       await _publishName(uid);
       do {
