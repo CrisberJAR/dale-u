@@ -899,10 +899,16 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Movimientos'), findsOneWidget);
+    expect(find.text('Anotar fiado o pago'), findsOneWidget);
+    expect(find.bySemanticsLabel('Debe S/ 5,000.00'), findsOneWidget);
+    expect(find.text('Código para que vea su deuda'), findsOneWidget);
+
+    // Lo de una vez por cliente vive en el menú, no compite con anotar.
+    await tester.tap(find.byTooltip('Más opciones del cliente'));
+    await tester.pumpAndSettle();
     expect(find.text('Editar datos'), findsOneWidget);
     expect(find.text('Marcar casa'), findsOneWidget);
-    expect(find.text('Debe S/ 5,000.00'), findsWidgets);
-    expect(find.text('Código para que vea su deuda'), findsOneWidget);
+    expect(find.text('Desactivar cliente'), findsOneWidget);
 
     vms.auth.dispose();
     vms.role.dispose();

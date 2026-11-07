@@ -448,7 +448,8 @@ class _VoiceConsole extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        SizedBox(
+        VendorPressable(
+          child: SizedBox(
           height: 72,
           child: FilledButton.icon(
             onPressed: voice.toggle,
@@ -474,6 +475,7 @@ class _VoiceConsole extends StatelessWidget {
             ),
           ),
         ),
+        ),
         const SizedBox(height: 8),
         VendorSurface(
           padding: const EdgeInsets.all(10),
@@ -489,14 +491,19 @@ class _VoiceConsole extends StatelessWidget {
           const SizedBox(height: 10),
           MicHearingBar(strength: voice.hearingStrength),
         ],
-        if (voice.errorMessage != null) ...[
-          const SizedBox(height: 8),
-          Text(
-            voice.errorMessage!,
-            textAlign: TextAlign.center,
-            style: VendorLook.dangerText,
-          ),
-        ],
+        VendorReveal(
+          child: voice.errorMessage == null
+              ? null
+              : Padding(
+                  key: ValueKey(voice.errorMessage),
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Text(
+                    voice.errorMessage!,
+                    textAlign: TextAlign.center,
+                    style: VendorLook.dangerText,
+                  ),
+                ),
+        ),
         const _UndoVoiceButton(),
       ],
     );
@@ -512,8 +519,11 @@ class _UndoVoiceButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final clients = context.watch<ClientViewModel>();
     final last = clients.undoableVoice;
-    if (last == null) return const SizedBox.shrink();
-    return Padding(
+    return VendorReveal(
+      child: last == null
+          ? null
+          : Padding(
+      key: ValueKey(last),
       padding: const EdgeInsets.only(top: 8),
       child: VendorSecondaryButton(
         label: 'Deshacer: ${last.kind.spokenLabel.toLowerCase()} '
@@ -529,6 +539,7 @@ class _UndoVoiceButton extends StatelessWidget {
                 );
               },
       ),
+    ),
     );
   }
 }
@@ -556,7 +567,7 @@ class MicHearingBar extends StatelessWidget {
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 2),
             child: ColoredBox(
-              color: active ? VendorLook.ink : const Color(0xFFDDDDDD),
+              color: active ? VendorLook.ink : VendorLook.meterOff,
               child: const SizedBox(height: 12),
             ),
           ),

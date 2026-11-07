@@ -167,6 +167,12 @@ class ClientViewModel extends ChangeNotifier {
     return null;
   }
 
+  /// El cliente cuya ficha está abierta (a quién se le anota).
+  Client? get openClient {
+    final id = _openClientId;
+    return id == null ? null : clientById(id);
+  }
+
   Future<void> _onAuthState(UserSession? session) async {
     _vendorUid = InputSanitizer.uid(session?.uid);
     _errorMessage = null;

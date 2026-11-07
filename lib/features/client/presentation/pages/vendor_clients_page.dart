@@ -239,7 +239,7 @@ class _RosterChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      height: 44,
+      height: VendorLook.compactButtonHeight,
       child: Material(
         color: selected ? VendorLook.ink : VendorLook.surface,
         shape: RoundedRectangleBorder(
@@ -333,8 +333,8 @@ class _ClientList extends StatelessWidget {
             subtitle: _clientSubtitle(viewModel, client),
             trailing: Icon(
               Icons.chevron_right,
-              size: 32,
-              color: VendorLook.ink,
+              size: 28,
+              color: VendorLook.muted,
             ),
           ),
         );
@@ -343,13 +343,27 @@ class _ClientList extends StatelessWidget {
   }
 }
 
+/// Primero lo que importa (cuánto debe); el teléfono después, apagado.
 Widget? _clientSubtitle(ClientViewModel viewModel, Client client) {
   final phone = client.phone;
-  final debt = _debtLine(viewModel.balanceCents(client.id));
+  final balance = viewModel.balanceCents(client.id);
+  final debt = _debtLine(balance);
   if (phone.isEmpty && debt == null) return null;
-  return Text(
-    [if (phone.isNotEmpty) phone, ?debt].join('\n'),
-    style: VendorLook.body,
+  return Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      if (debt != null)
+        Text(
+          debt,
+          style: VendorLook.body.copyWith(
+            fontWeight: FontWeight.w800,
+            color: balance < 0 ? VendorLook.paid : VendorLook.ink,
+            fontFeatures: const [FontFeature.tabularFigures()],
+          ),
+        ),
+      if (phone.isNotEmpty) Text(phone, style: VendorLook.body),
+    ],
   );
 }
 
