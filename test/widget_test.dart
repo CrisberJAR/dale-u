@@ -1,4 +1,5 @@
 import 'package:dale_u/app/dale_u_app.dart';
+import 'package:dale_u/features/presence/domain/vendor_on_map.dart';
 import 'package:dale_u/core/error/auth_failure.dart';
 import 'package:dale_u/core/error/result.dart';
 import 'package:dale_u/core/theme/look_store.dart';
@@ -287,16 +288,10 @@ class _FakeBuyerRemote implements BuyerRemoteDataSource {
   Future<InviteLookup?> fetchInvite(String code) async => null;
 
   @override
-  Future<void> claimInvite({
+  Future<void> claimAndLink({
     required String code,
     required String buyerUid,
-  }) async {}
-
-  @override
-  Future<void> linkClient({
-    required String vendorUid,
-    required String clientId,
-    required String buyerUid,
+    required LinkedAccount account,
   }) async {}
 
   @override
@@ -309,6 +304,7 @@ class _FakeBuyerRemote implements BuyerRemoteDataSource {
   Future<List<Movement>> fetchMovements({
     required String vendorUid,
     required String clientId,
+    int? limit,
   }) async => const [];
 
   @override
@@ -364,6 +360,9 @@ class _FakeGps implements LocationGateway {
   Future<GeoFix?> readFix() async {
     return const GeoFix(latitude: -12.05, longitude: -77.04);
   }
+
+  @override
+  Stream<GeoFix> watch() => const Stream<GeoFix>.empty();
 }
 
 class _SilentPresenceRemote implements PresenceRemoteDataSource {
@@ -376,6 +375,10 @@ class _SilentPresenceRemote implements PresenceRemoteDataSource {
   @override
   Stream<VendorPresence?> watch(String vendorUid) =>
       const Stream<VendorPresence?>.empty();
+
+  @override
+  Stream<List<VendorOnRoute>> watchAllOnRoute() =>
+      const Stream<List<VendorOnRoute>>.empty();
 }
 
 ({
@@ -896,10 +899,16 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Movimientos'), findsOneWidget);
+    expect(find.text('Anotar fiado o pago'), findsOneWidget);
+    expect(find.bySemanticsLabel('Debe S/ 5,000.00'), findsOneWidget);
+    expect(find.text('Código para que vea su deuda'), findsOneWidget);
+
+    // Lo de una vez por cliente vive en el menú, no compite con anotar.
+    await tester.tap(find.byTooltip('Más opciones del cliente'));
+    await tester.pumpAndSettle();
     expect(find.text('Editar datos'), findsOneWidget);
     expect(find.text('Marcar casa'), findsOneWidget);
-    expect(find.text('Debe S/ 5,000.00'), findsWidgets);
-    expect(find.text('Código para que vea su deuda'), findsOneWidget);
+    expect(find.text('Desactivar cliente'), findsOneWidget);
 
     vms.auth.dispose();
     vms.role.dispose();

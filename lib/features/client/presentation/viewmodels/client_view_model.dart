@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:dale_u/core/format/money.dart';
 import 'package:dale_u/core/error/client_exception.dart';
 import 'package:dale_u/core/error/ledger_exception.dart';
 import 'package:dale_u/core/error/sync_error_mapper.dart';
@@ -70,6 +71,14 @@ class ClientViewModel extends ChangeNotifier {
   String? _syncError;
   String _searchQuery = '';
   ClientRosterFilter _rosterFilter = ClientRosterFilter.all;
+  VoiceUndoable? _lastVoice;
+  Timer? _undoTimer;
+
+  /// Cuánto dura el botón Deshacer tras anotar por voz.
+  static const undoWindow = Duration(seconds: 60);
+
+  /// Lo último anotado por voz, mientras todavía se puede deshacer.
+  VoiceUndoable? get undoableVoice => _lastVoice;
 
   List<Client> get clients => _clients;
   List<Client> get visibleClients => ClientRoster.apply(
@@ -156,6 +165,12 @@ class ClientViewModel extends ChangeNotifier {
       if (client.id == id) return client;
     }
     return null;
+  }
+
+  /// El cliente cuya ficha está abierta (a quién se le anota).
+  Client? get openClient {
+    final id = _openClientId;
+    return id == null ? null : clientById(id);
   }
 
   Future<void> _onAuthState(UserSession? session) async {
@@ -423,6 +438,14 @@ class ClientViewModel extends ChangeNotifier {
             );
           }
           _clearRoster();
+          _rememberVoice(
+            VoiceUndoable(
+              movementId: movement.id,
+              clientName: client.name,
+              kind: kind,
+              amountCents: movement.amountCents,
+            ),
+          );
           unawaited(_syncThenRefresh(uid));
           final newBalance = balanceCents(client.id);
           return (
@@ -448,6 +471,61 @@ class ClientViewModel extends ChangeNotifier {
           _saving = false;
           notifyListeners();
         }
+    }
+  }
+
+  void _rememberVoice(VoiceUndoable item) {
+    _undoTimer?.cancel();
+    _lastVoice = item;
+    _undoTimer = Timer(undoWindow, () {
+      _lastVoice = null;
+      _undoTimer = null;
+      notifyListeners();
+    });
+  }
+
+  void _forgetVoice() {
+    _undoTimer?.cancel();
+    _undoTimer = null;
+    _lastVoice = null;
+  }
+
+  /// Anula lo último anotado por voz (por si se entendió mal).
+  Future<({bool ok, String message})> undoLastVoiceMovement() async {
+    final uid = _vendorUid;
+    final last = _lastVoice;
+    if (uid == null) {
+      return (ok: false, message: 'Sesión inválida. Vuelve a entrar.');
+    }
+    if (last == null) {
+      return (ok: false, message: 'No hay nada reciente para deshacer.');
+    }
+    if (_saving) {
+      return (ok: false, message: 'Espera, estoy guardando.');
+    }
+    _saving = true;
+    notifyListeners();
+    try {
+      await voidMovementUseCase(vendorUid: uid, movementId: last.movementId);
+      _forgetVoice();
+      _balances = await listBalances(uid);
+      if (_openClientId != null) {
+        _openMovements = await listClientMovements(
+          vendorUid: uid,
+          clientId: _openClientId!,
+        );
+      }
+      unawaited(_syncThenRefresh(uid));
+      return (ok: true, message: 'Listo. Anulé ${last.spokenLine}.');
+    } on LedgerException catch (error) {
+      return (ok: false, message: error.userMessage);
+    } catch (error, stack) {
+      debugPrint('Undo voice failed: ${error.runtimeType}');
+      debugPrint('$stack');
+      return (ok: false, message: 'No se pudo deshacer.');
+    } finally {
+      _saving = false;
+      notifyListeners();
     }
   }
 
@@ -492,6 +570,14 @@ class ClientViewModel extends ChangeNotifier {
     }
   }
 
+  /// Sube lo pendiente ahora (por ejemplo, antes de mandar el enlace del
+  /// estado de cuenta). Si no hay señal, no pasa nada: queda en el teléfono.
+  Future<void> syncNow() async {
+    final uid = _vendorUid;
+    if (uid == null) return;
+    await _syncThenRefresh(uid);
+  }
+
   Future<void> _syncThenRefresh(String uid) async {
     try {
       await syncClients(uid);
@@ -521,7 +607,30 @@ class ClientViewModel extends ChangeNotifier {
 
   @override
   void dispose() {
+    _undoTimer?.cancel();
     unawaited(_authSubscription.cancel());
     super.dispose();
+  }
+}
+
+/// Lo último anotado por voz, para el botón y el comando Deshacer.
+final class VoiceUndoable {
+  const VoiceUndoable({
+    required this.movementId,
+    required this.clientName,
+    required this.kind,
+    required this.amountCents,
+  });
+
+  final String movementId;
+  final String clientName;
+  final MovementKind kind;
+  final int amountCents;
+
+  /// "el fiado de S/ 10.00 a María"
+  String get spokenLine {
+    final what = kind == MovementKind.fiado ? 'el fiado' : 'el pago';
+    final to = kind == MovementKind.fiado ? 'a' : 'de';
+    return '$what de S/ ${formatSoles(amountCents)} $to $clientName';
   }
 }

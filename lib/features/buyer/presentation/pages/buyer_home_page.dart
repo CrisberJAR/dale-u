@@ -6,7 +6,11 @@ import 'package:dale_u/features/buyer/presentation/viewmodels/buyer_view_model.d
 import 'package:dale_u/features/ledger/domain/entities/movement.dart';
 import 'package:dale_u/features/ledger/presentation/widgets/movements_show_more.dart';
 import 'package:dale_u/features/notice/presentation/widgets/buyer_notice_banner.dart';
+import 'package:dale_u/app/dale_u_app.dart';
 import 'package:dale_u/features/presence/presentation/pages/buyer_map_page.dart';
+import 'package:dale_u/features/proximity/data/push_registrar.dart';
+import 'package:dale_u/features/statement/domain/statement.dart';
+import 'package:dale_u/features/statement/presentation/statement_actions.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -28,6 +32,7 @@ class BuyerHomePage extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
+                const _ProximityPush(),
                 const SizedBox(height: 12),
                 Text(
                   'Mi cuenta',
@@ -64,6 +69,42 @@ class BuyerHomePage extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Registra este teléfono para "Tu panadero está cerca" una vez por sesión.
+class _ProximityPush extends StatefulWidget {
+  const _ProximityPush();
+
+  @override
+  State<_ProximityPush> createState() => _ProximityPushState();
+}
+
+class _ProximityPushState extends State<_ProximityPush> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final registrar = context.read<PushRegistrar?>();
+      final uid = context.read<AuthViewModel>().session?.uid;
+      if (registrar == null || uid == null) return;
+      registrar.onForegroundMessage = (title, body) {
+        appMessengerKey.currentState?.showSnackBar(
+          SnackBar(
+            duration: const Duration(seconds: 8),
+            content: Text(
+              body.isEmpty ? title : '$title. $body',
+              style: const TextStyle(fontSize: 17),
+            ),
+          ),
+        );
+      };
+      registrar.register(uid);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) => const SizedBox.shrink();
 }
 
 class _FirstLink extends StatefulWidget {
@@ -110,6 +151,24 @@ class _FirstLinkState extends State<_FirstLink> {
           onPressed: buyer.saving
               ? null
               : () => buyer.linkWithCode(_controller.text),
+        ),
+        const SizedBox(height: 20),
+        Text(
+          'Sin código también puedes ver por dónde va el panadero.',
+          textAlign: TextAlign.center,
+          style: BuyerLook.body,
+        ),
+        const SizedBox(height: 8),
+        VendorSecondaryButton(
+          label: 'Ver panadero',
+          size: VendorControlSize.compact,
+          onPressed: () {
+            Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => const BuyerMapPage(accounts: []),
+              ),
+            );
+          },
         ),
       ],
     );
@@ -400,14 +459,39 @@ class _VendorCardState extends State<_VendorCard> {
           ),
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-            child: VendorPrimaryButton(
-              label: sending ? 'Enviando…' : 'Déjame pan',
-              icon: Icons.bakery_dining,
-              busy: sending,
-              size: VendorControlSize.compact,
-              onPressed: sending
-                  ? null
-                  : () => context.read<BuyerViewModel>().requestPan(ledger),
+            child: Row(
+              children: [
+                Expanded(
+                  flex: 2,
+                  child: VendorPrimaryButton(
+                    label: sending ? 'Enviando…' : 'Déjame pan',
+                    icon: Icons.bakery_dining,
+                    busy: sending,
+                    size: VendorControlSize.compact,
+                    onPressed: sending
+                        ? null
+                        : () =>
+                              context.read<BuyerViewModel>().requestPan(ledger),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: VendorSecondaryButton(
+                    label: 'PDF',
+                    size: VendorControlSize.compact,
+                    onPressed: () => shareStatementPdf(
+                      context,
+                      Statement(
+                        vendorName: ledger.vendorLabel,
+                        clientName: ledger.client.name,
+                        movements: ledger.movements,
+                        balanceCents: ledger.balanceCents,
+                        generatedAt: DateTime.now(),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
         ],

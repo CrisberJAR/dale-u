@@ -23,13 +23,18 @@ final class BuyerLedger {
 
   final LinkedAccount account;
   final Client client;
+
+  /// Solo lo vigente: lo que el vendedor anuló no se muestra.
   final List<Movement> movements;
 
   String get vendorLabel {
     return account.vendorName.isEmpty ? 'Tu vendedor' : account.vendorName;
   }
 
+  /// El de la nube (Cloud Function) si existe; si no, la suma de aquí.
   int get balanceCents {
+    final server = client.balanceCents;
+    if (server != null) return server;
     var total = 0;
     for (final movement in movements) {
       total += movement.signedCents;
@@ -39,6 +44,9 @@ final class BuyerLedger {
 }
 
 class BuyerViewModel extends ChangeNotifier {
+  /// Con el saldo en la ficha basta con traer los últimos movimientos.
+  static const recentMovements = 60;
+
   BuyerViewModel({
     required ObserveAuthState observeAuthState,
     required this.store,
@@ -155,13 +163,7 @@ class BuyerViewModel extends ChangeNotifier {
         throw const BuyerException('Ya estabas vinculado con ese vendedor.');
       }
 
-      await remote.claimInvite(code: code, buyerUid: uid);
-      await remote.linkClient(
-        vendorUid: account.vendorUid,
-        clientId: account.clientId,
-        buyerUid: uid,
-      );
-      await remote.saveLink(buyerUid: uid, account: account);
+      await remote.claimAndLink(code: code, buyerUid: uid, account: account);
 
       final accounts = [
         ..._ledgers.map((ledger) => ledger.account),
@@ -220,10 +222,15 @@ class BuyerViewModel extends ChangeNotifier {
       final movements = await remote.fetchMovements(
         vendorUid: account.vendorUid,
         clientId: account.clientId,
+        limit: client.balanceCents == null ? null : recentMovements,
       );
       final named = await _withVendorName(uid, account);
       ledgers.add(
-        BuyerLedger(account: named, client: client, movements: movements),
+        BuyerLedger(
+          account: named,
+          client: client,
+          movements: movements.where((item) => !item.voided).toList(),
+        ),
       );
       alive.add(named);
       await remote.ensureVendorMarker(buyerUid: uid, account: named);

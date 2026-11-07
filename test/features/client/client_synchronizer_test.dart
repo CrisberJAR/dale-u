@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:dale_u/features/client/data/datasources/client_local_datasource.dart';
 import 'package:dale_u/features/client/data/datasources/client_remote_datasource.dart';
 import 'package:dale_u/features/client/data/sync/client_synchronizer.dart';
@@ -13,11 +15,11 @@ class _MemoryLocal implements ClientPendingStore {
       pending.where((c) => c.vendorUid == vendorUid).toList();
 
   @override
-  Future<void> markSynced(String id) async {
-    pending.removeWhere((c) => c.id == id);
-    final current = all[id];
+  Future<void> markSynced(Client pushed) async {
+    pending.removeWhere((c) => c.id == pushed.id);
+    final current = all[pushed.id];
     if (current != null) {
-      all[id] = current.copyWith(pendingSync: false);
+      all[pushed.id] = current.copyWith(pendingSync: false);
     }
   }
 
@@ -51,6 +53,17 @@ class _MemoryRemote implements ClientRemoteDataSource {
     required String clientId,
     required String inviteCode,
   }) async {}
+}
+
+/// Fetch que no responde hasta que la prueba lo suelta.
+class _SlowRemote extends _MemoryRemote {
+  final gate = Completer<void>();
+
+  @override
+  Future<List<Client>> fetchByVendor(String vendorUid) async {
+    await gate.future;
+    return remote;
+  }
 }
 
 class _FailingRemote implements ClientRemoteDataSource {
@@ -123,5 +136,24 @@ void main() {
     await expectLater(sync.sync('uid123'), throwsA(isA<Exception>()));
     expect(local.pending, isNotEmpty);
     expect(local.all[sample.id]!.pendingSync, isTrue);
+  });
+
+  test('una segunda llamada espera a que los clientes ya estén en local',
+      () async {
+    final local = _MemoryLocal();
+    final remote = _SlowRemote()..remote = [sample];
+    final sync = ClientSynchronizer(local: local, remote: remote);
+
+    final first = sync.sync('uid123');
+    var secondDone = false;
+    final second = sync.sync('uid123').then((_) => secondDone = true);
+
+    await Future<void>.delayed(Duration.zero);
+    expect(secondDone, isFalse, reason: 'no debe volver antes de bajar');
+
+    remote.gate.complete();
+    await second;
+    expect(local.all[sample.id], isNotNull);
+    await first;
   });
 }

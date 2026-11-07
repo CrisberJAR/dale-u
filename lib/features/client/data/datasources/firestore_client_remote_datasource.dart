@@ -32,8 +32,11 @@ class FirestoreClientRemoteDataSource implements ClientRemoteDataSource {
     if (vendorUid == null || clientId == null || name == null || invite == null) {
       throw const ClientException('Cliente inválido para sincronizar.');
     }
-    final linked = InputSanitizer.uid(client.linkedUid) ?? '';
-
+    // `linkedUid` lo escribe solo el comprador al vincularse. El vendedor
+    // nunca lo manda: antes, subir una ficha editada con la copia local
+    // vieja borraba la vinculación y dejaba el código libre para otro.
+    // `balanceCents` lo escribe la Cloud Function. Por eso se fusiona
+    // (merge) en vez de reemplazar el documento.
     final batch = firestore.batch();
     final payload = <String, Object>{
       'vendorUid': vendorUid,
@@ -43,20 +46,29 @@ class FirestoreClientRemoteDataSource implements ClientRemoteDataSource {
       'updatedAt': client.updatedAt.millisecondsSinceEpoch,
       'active': client.active,
       'inviteCode': invite,
-      'linkedUid': linked,
     };
     if (client.hasHousePin) {
       payload['latitude'] = client.latitude!;
       payload['longitude'] = client.longitude!;
+    } else {
+      payload['latitude'] = FieldValue.delete();
+      payload['longitude'] = FieldValue.delete();
     }
-    batch.set(_col(vendorUid).doc(clientId), payload);
-    batch.set(firestore.collection('invites').doc(invite), {
-      'vendorUid': vendorUid,
-      'clientId': clientId,
-      'active': client.active,
-      'linkedUid': linked,
-      'vendorName': _vendorName(),
-    });
+    batch.set(
+      _col(vendorUid).doc(clientId),
+      payload,
+      SetOptions(merge: true),
+    );
+    batch.set(
+      firestore.collection('invites').doc(invite),
+      {
+        'vendorUid': vendorUid,
+        'clientId': clientId,
+        'active': client.active,
+        'vendorName': _vendorName(),
+      },
+      SetOptions(merge: true),
+    );
     await batch.commit().timeout(_timeout);
   }
 

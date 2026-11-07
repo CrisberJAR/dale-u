@@ -26,23 +26,85 @@ class FirestoreMovementRemoteDataSource implements MovementRemoteDataSource {
         .collection('movements');
   }
 
-  @override
-  Future<void> upsert(Movement movement) async {
+  /// La hora del cambio la pone el servidor: así la bajada incremental no
+  /// depende del reloj de cada teléfono.
+  DocumentReference<Map<String, dynamic>> _ref(Movement movement) {
     final vendorUid = InputSanitizer.uid(movement.vendorUid);
     final clientId = InputSanitizer.uid(movement.clientId);
     final movementId = InputSanitizer.uid(movement.id);
     if (vendorUid == null || clientId == null || movementId == null) {
       throw const LedgerException('Movimiento inválido para sincronizar.');
     }
-    await _col(vendorUid: vendorUid, clientId: clientId).doc(movementId).set({
-      'vendorUid': vendorUid,
-      'clientId': clientId,
+    return _col(vendorUid: vendorUid, clientId: clientId).doc(movementId);
+  }
+
+  Map<String, Object> _payload(Movement movement) {
+    return {
+      'vendorUid': movement.vendorUid,
+      'clientId': movement.clientId,
       'kind': movement.kind.name,
       'amountCents': movement.amountCents,
       'occurredAt': movement.occurredAt.millisecondsSinceEpoch,
       'createdAt': movement.createdAt.millisecondsSinceEpoch,
       'voided': movement.voided,
-    }).timeout(_timeout);
+      'updatedAt': FieldValue.serverTimestamp(),
+    };
+  }
+
+  @override
+  Future<void> upsert(Movement movement) async {
+    await _ref(movement).set(_payload(movement)).timeout(_timeout);
+  }
+
+  @override
+  Future<void> upsertAll(List<Movement> movements) async {
+    if (movements.isEmpty) return;
+    final batch = firestore.batch();
+    for (final movement in movements) {
+      batch.set(_ref(movement), _payload(movement));
+    }
+    await batch.commit().timeout(_timeout);
+  }
+
+  @override
+  Future<MovementChanges> fetchChangedSince({
+    required String vendorUid,
+    required DateTime since,
+  }) async {
+    final uid = InputSanitizer.uid(vendorUid);
+    if (uid == null) return const MovementChanges(movements: []);
+    final QuerySnapshot<Map<String, dynamic>> snapshot;
+    try {
+      snapshot = await firestore
+          .collectionGroup('movements')
+          .where('vendorUid', isEqualTo: uid)
+          .where('updatedAt', isGreaterThan: Timestamp.fromDate(since))
+          .orderBy('updatedAt')
+          .get()
+          .timeout(_timeout);
+    } on FirebaseException catch (error) {
+      // Sin índice desplegado (o reglas viejas): se baja todo como antes.
+      if (error.code == 'failed-precondition' ||
+          error.code == 'permission-denied') {
+        throw const MovementDeltaUnavailable();
+      }
+      rethrow;
+    }
+    final movements = <Movement>[];
+    DateTime? cursor;
+    for (final doc in snapshot.docs) {
+      final data = doc.data();
+      final clientId = InputSanitizer.uid(data['clientId'] as String?);
+      if (clientId == null) continue;
+      final parsed = _fromDoc(uid, clientId, doc.id, data);
+      if (parsed != null) movements.add(parsed);
+      final stamp = data['updatedAt'];
+      if (stamp is Timestamp) {
+        final at = stamp.toDate().toUtc();
+        if (cursor == null || at.isAfter(cursor)) cursor = at;
+      }
+    }
+    return MovementChanges(movements: movements, cursor: cursor);
   }
 
   @override

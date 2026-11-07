@@ -1,5 +1,8 @@
 import 'package:dale_u/core/config/app_env.dart';
 import 'package:dale_u/core/database/app_database.dart';
+import 'package:dale_u/core/sync/sync_cursor_store.dart';
+import 'package:dale_u/features/proximity/data/push_registrar.dart';
+import 'package:dale_u/features/statement/data/statement_link_service.dart';
 import 'package:dale_u/features/auth/data/datasources/google_auth_remote_datasource.dart';
 import 'package:dale_u/features/auth/data/gateways/google_sign_in_gateway.dart';
 import 'package:dale_u/features/auth/data/repositories/auth_repository_impl.dart';
@@ -126,6 +129,7 @@ class AppContainer {
       local: localMovements,
       remote: FirestoreMovementRemoteDataSource(),
       listClientIds: localClients.listIdsByVendor,
+      cursors: SyncCursorStore(preferences, scope: 'movements.v2'),
     );
     final movementRepository = MovementRepositoryImpl(
       localMovements,
@@ -140,7 +144,13 @@ class AppContainer {
       registerClient: RegisterClient(clientRepository),
       updateClientUseCase: UpdateClient(clientRepository),
       setClientHouseUseCase: SetClientHouse(clientRepository),
-      deactivateClientUseCase: DeactivateClient(clientRepository),
+      deactivateClientUseCase: DeactivateClient(
+        clientRepository,
+        balanceOf: ({required vendorUid, required clientId}) async {
+          final balances = await listBalances(vendorUid);
+          return balances[clientId] ?? 0;
+        },
+      ),
       syncClients: syncClients,
       syncMovements: syncMovements,
       recordMovement: recordMovement,
@@ -172,10 +182,11 @@ class AppContainer {
       observeAuthState: observeAuthState,
       remote: notices,
     );
+    final buyerRemote = FirestoreBuyerRemoteDataSource();
     buyerViewModel = BuyerViewModel(
       observeAuthState: observeAuthState,
       store: LinkedAccountStore(preferences),
-      remote: FirestoreBuyerRemoteDataSource(),
+      remote: buyerRemote,
       inbox: panInbox,
     );
     vendorInboxViewModel = VendorInboxViewModel(
@@ -189,11 +200,17 @@ class AppContainer {
       remote: presenceRemote,
       store: PresenceLocalStore(preferences),
     );
-    buyerMapViewModel = BuyerMapViewModel(remote: presenceRemote);
+    buyerMapViewModel = BuyerMapViewModel(
+      remote: presenceRemote,
+      nameOf: buyerRemote.fetchVendorName,
+    );
     radarViewModel = DebtorRadarViewModel(
       store: RadarMuteStore(preferences),
     );
     lookViewModel = LookViewModel(store: LookStore(preferences));
+    statementLinks = StatementLinkService(preferences: preferences);
+    pushRegistrar = PushRegistrar(preferences: preferences);
+    authViewModel.beforeSignOut = pushRegistrar.unregister;
     voiceCaptureViewModel = VoiceCaptureViewModel(
       capture: NativeVoiceCaptureGateway(),
       playback: NativeVoicePlaybackGateway(),
@@ -219,6 +236,7 @@ class AppContainer {
       applySearchByVoice: ({required spokenQuery}) {
         return clientViewModel.applySearchByVoice(spokenQuery: spokenQuery);
       },
+      undoLastByVoice: clientViewModel.undoLastVoiceMovement,
     );
   }
 
@@ -240,6 +258,8 @@ class AppContainer {
   late final DebtorRadarViewModel radarViewModel;
   late final LookViewModel lookViewModel;
   late final VoiceCaptureViewModel voiceCaptureViewModel;
+  late final StatementLinkService statementLinks;
+  late final PushRegistrar pushRegistrar;
 
   Future<void> initializeGoogleSignIn() {
     return _googleSignIn.initialize(

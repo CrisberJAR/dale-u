@@ -87,20 +87,14 @@ class _FakeBuyerRemote implements BuyerRemoteDataSource {
   Future<InviteLookup?> fetchInvite(String code) async => invites[code];
 
   @override
-  Future<void> claimInvite({
+  Future<void> claimAndLink({
     required String code,
     required String buyerUid,
+    required LinkedAccount account,
   }) async {
     claimed.add(code);
-  }
-
-  @override
-  Future<void> linkClient({
-    required String vendorUid,
-    required String clientId,
-    required String buyerUid,
-  }) async {
-    linkedClients.add(key(vendorUid, clientId));
+    linkedClients.add(key(account.vendorUid, account.clientId));
+    links[account.id] = account;
   }
 
   @override
@@ -113,6 +107,7 @@ class _FakeBuyerRemote implements BuyerRemoteDataSource {
   Future<List<Movement>> fetchMovements({
     required String vendorUid,
     required String clientId,
+    int? limit,
   }) async => movements[key(vendorUid, clientId)] ?? const [];
 
   @override

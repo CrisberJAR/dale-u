@@ -51,4 +51,17 @@ void main() {
       isFalse,
     );
   });
+
+  test('si todavía debe, nunca se borra', () {
+    expect(
+      InactiveClientPolicy.shouldPurge(
+        active: false,
+        updatedAt: DateTime.utc(2025, 1, 1),
+        lastMovementAt: DateTime.utc(2025, 1, 1),
+        now: now,
+        balanceCents: 1250,
+      ),
+      isFalse,
+    );
+  });
 }

@@ -118,8 +118,16 @@ class _RecordMovementPageState extends State<RecordMovementPage> {
               children: [
                 const SizedBox(height: 12),
                 Text(
-                  'Anotar movimiento',
+                  'Anotar fiado o pago',
                   textAlign: TextAlign.center,
+                  style: VendorLook.subtitle,
+                ),
+                // A quién: que nunca se anote a la persona equivocada.
+                Text(
+                  viewModel.openClient?.name ?? 'Cliente',
+                  textAlign: TextAlign.center,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
                   style: VendorLook.title,
                 ),
                 const SizedBox(height: 16),
@@ -145,17 +153,15 @@ class _RecordMovementPageState extends State<RecordMovementPage> {
                         ],
                         autofocus: true,
                         style: TextStyle(
-                          fontSize: 20,
+                          fontSize: 32,
                           color: VendorLook.ink,
-                          fontWeight: FontWeight.w600,
+                          fontWeight: FontWeight.w800,
+                          fontFeatures: const [FontFeature.tabularFigures()],
                         ),
-                        decoration: _boxDecoration('Ej. 1.50'),
+                        decoration: _boxDecoration('0.00'),
                       ),
                       const SizedBox(height: 16),
-                      Text(
-                        'Fecha y hora (Perú)',
-                        style: VendorLook.subtitle,
-                      ),
+                      Text('Fecha y hora (Perú)', style: VendorLook.subtitle),
                       const SizedBox(height: 8),
                       VendorSecondaryButton(
                         label: 'Fecha ${peruDateLabel(_occurredAt)}',
@@ -199,7 +205,17 @@ class _RecordMovementPageState extends State<RecordMovementPage> {
   InputDecoration _boxDecoration(String hint) {
     return InputDecoration(
       hintText: hint,
-      hintStyle: const TextStyle(color: Color(0xFF4A4A4A), fontSize: 18),
+      hintStyle: TextStyle(
+        color: VendorLook.muted,
+        fontSize: 32,
+        fontWeight: FontWeight.w800,
+      ),
+      prefixText: 'S/ ',
+      prefixStyle: TextStyle(
+        color: VendorLook.muted,
+        fontSize: 24,
+        fontWeight: FontWeight.w800,
+      ),
       filled: true,
       fillColor: VendorLook.surface,
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),

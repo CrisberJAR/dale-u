@@ -21,12 +21,12 @@ final class InviteLookup {
 abstract class BuyerRemoteDataSource {
   Future<InviteLookup?> fetchInvite(String code);
 
-  Future<void> claimInvite({required String code, required String buyerUid});
-
-  Future<void> linkClient({
-    required String vendorUid,
-    required String clientId,
+  /// Toma el código y vincula la ficha en **una sola escritura atómica**:
+  /// invitación, ficha, libreta y marcador. O queda todo o no queda nada.
+  Future<void> claimAndLink({
+    required String code,
     required String buyerUid,
+    required LinkedAccount account,
   });
 
   Future<Client?> fetchClient({
@@ -34,9 +34,11 @@ abstract class BuyerRemoteDataSource {
     required String clientId,
   });
 
+  /// Con [limit], solo los últimos (el saldo ya viene en la ficha).
   Future<List<Movement>> fetchMovements({
     required String vendorUid,
     required String clientId,
+    int? limit,
   });
 
   /// Nombre público del vendedor. Vacío si aún no lo publicó.

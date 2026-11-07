@@ -47,47 +47,43 @@ class FirestoreBuyerRemoteDataSource implements BuyerRemoteDataSource {
   }
 
   @override
-  Future<void> claimInvite({
+  Future<void> claimAndLink({
     required String code,
     required String buyerUid,
+    required LinkedAccount account,
   }) async {
     final parsed = InviteCode.parse(code);
     final uid = InputSanitizer.uid(buyerUid);
-    if (parsed == null || uid == null) {
+    final vendor = InputSanitizer.uid(account.vendorUid);
+    final client = InputSanitizer.uid(account.clientId);
+    if (parsed == null || uid == null || vendor == null || client == null) {
       throw const BuyerException('Ese código no es válido.');
     }
-    try {
-      await firestore.collection('invites').doc(parsed).update({
+    final batch = firestore.batch();
+    batch.update(firestore.collection('invites').doc(parsed), {
+      'linkedUid': uid,
+    });
+    batch.update(
+      firestore.collection('vendors').doc(vendor).collection('clients').doc(
+        client,
+      ),
+      {
         'linkedUid': uid,
-      }).timeout(_timeout);
-    } on FirebaseException catch (error) {
-      throw _map(error);
-    }
-  }
-
-  @override
-  Future<void> linkClient({
-    required String vendorUid,
-    required String clientId,
-    required String buyerUid,
-  }) async {
-    final vendor = InputSanitizer.uid(vendorUid);
-    final client = InputSanitizer.uid(clientId);
-    final uid = InputSanitizer.uid(buyerUid);
-    if (vendor == null || client == null || uid == null) {
-      throw const BuyerException('No se pudo vincular la cuenta.');
-    }
+        'updatedAt': DateTime.now().millisecondsSinceEpoch,
+      },
+    );
+    batch.set(_links(uid).doc(account.id), {
+      'vendorUid': vendor,
+      'clientId': client,
+      'vendorName': account.vendorName,
+      'linkedAt': DateTime.now().millisecondsSinceEpoch,
+    });
+    batch.set(
+      firestore.collection('buyers').doc(uid).collection('vendors').doc(vendor),
+      {'clientId': client},
+    );
     try {
-      await firestore
-          .collection('vendors')
-          .doc(vendor)
-          .collection('clients')
-          .doc(client)
-          .update({
-            'linkedUid': uid,
-            'updatedAt': DateTime.now().millisecondsSinceEpoch,
-          })
-          .timeout(_timeout);
+      await batch.commit().timeout(_timeout);
     } on FirebaseException catch (error) {
       throw _map(error);
     }
@@ -127,6 +123,7 @@ class FirestoreBuyerRemoteDataSource implements BuyerRemoteDataSource {
         active: data['active'] != false,
         inviteCode: InviteCode.parse(data['inviteCode'] as String?) ?? '',
         linkedUid: InputSanitizer.uid(data['linkedUid'] as String?) ?? '',
+        balanceCents: _asMillis(data['balanceCents']),
       );
     } on FirebaseException catch (error) {
       throw _map(error);
@@ -137,19 +134,22 @@ class FirestoreBuyerRemoteDataSource implements BuyerRemoteDataSource {
   Future<List<Movement>> fetchMovements({
     required String vendorUid,
     required String clientId,
+    int? limit,
   }) async {
     final vendor = InputSanitizer.uid(vendorUid);
     final client = InputSanitizer.uid(clientId);
     if (vendor == null || client == null) return const [];
     try {
-      final snapshot = await firestore
+      Query<Map<String, dynamic>> query = firestore
           .collection('vendors')
           .doc(vendor)
           .collection('clients')
           .doc(client)
-          .collection('movements')
-          .get()
-          .timeout(_timeout);
+          .collection('movements');
+      if (limit != null) {
+        query = query.orderBy('occurredAt', descending: true).limit(limit);
+      }
+      final snapshot = await query.get().timeout(_timeout);
       final movements = <Movement>[];
       for (final doc in snapshot.docs) {
         final parsed = _movementFrom(vendor, client, doc.id, doc.data());

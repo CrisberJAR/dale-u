@@ -1,0 +1,14 @@
+{
+  "name": "dale-u-firestore-rules-tests",
+  "private": true,
+  "description": "Pruebas de firestore.rules contra el emulador.",
+  "type": "module",
+  "scripts": {
+    "test": "firebase emulators:exec --config ../firebase.json --only firestore --project demo-dale-u \"node --test rules.test.js\""
+  },
+  "devDependencies": {
+    "@firebase/rules-unit-testing": "^6.0.0",
+    "firebase": "^13.2.0",
+    "firebase-tools": "^15.35.0"
+  }
+}

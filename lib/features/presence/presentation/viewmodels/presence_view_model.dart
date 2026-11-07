@@ -12,8 +12,9 @@ import 'package:dale_u/features/presence/domain/presence_policy.dart';
 import 'package:dale_u/features/presence/domain/vendor_presence.dart';
 import 'package:flutter/foundation.dart';
 
-/// Publica un punto cada 5 minutos si el vendedor se movió. Offline: el
-/// interruptor queda en el teléfono; la nube se actualiza cuando hay señal.
+/// Sigue el GPS mientras el vendedor está en ruta (también con la pantalla
+/// apagada) y sube un punto cuando avanza. Offline: el interruptor queda en
+/// el teléfono; la nube se actualiza cuando vuelve la señal.
 class PresenceViewModel extends ChangeNotifier {
   PresenceViewModel({
     required ObserveAuthState observeAuthState,
@@ -33,17 +34,23 @@ class PresenceViewModel extends ChangeNotifier {
     _authSubscription = observeAuthState().listen(_onAuth);
   }
 
+  /// Revisa el latido aunque el GPS no mande nada (vendedor quieto).
+  static const heartbeatCheck = Duration(minutes: 1);
+
   final LocationGateway location;
   final PresenceRemoteDataSource remote;
   final PresenceLocalStore store;
   final DateTime Function()? now;
 
   late final StreamSubscription<UserSession?> _authSubscription;
-  Timer? _timer;
+  StreamSubscription<GeoFix>? _gpsSubscription;
+  Timer? _heartbeat;
   String? _vendorUid;
   bool _onRoute = false;
   bool _busy = false;
   bool _locating = false;
+  bool _publishing = false;
+  bool _disposed = false;
   String? _errorMessage;
   GeoFix? _lastFix;
   DateTime? _lastAt;
@@ -65,7 +72,7 @@ class PresenceViewModel extends ChangeNotifier {
       return;
     }
     if (_onRoute) {
-      _startTicker();
+      _startTracking();
     }
   }
 
@@ -82,39 +89,39 @@ class PresenceViewModel extends ChangeNotifier {
     final uid = _vendorUid;
     if (uid == null) {
       _errorMessage = 'Sesión inválida. Vuelve a entrar.';
-      notifyListeners();
+      _notify();
       return;
     }
     _busy = true;
     _errorMessage = null;
-    notifyListeners();
+    _notify();
 
     final blocked = await location.ensureReady();
     if (blocked != null) {
       _busy = false;
       _errorMessage = blocked;
-      notifyListeners();
+      _notify();
       return;
     }
 
     _onRoute = true;
     await store.setOnRoute(true);
     _busy = false;
-    notifyListeners();
-    await _publishTick(force: true);
-    _startTicker();
+    _notify();
+    await _readAndPublish(force: true);
+    _startTracking();
   }
 
   Future<void> leaveRoute() async {
-    _timer?.cancel();
-    _timer = null;
+    await _stopTracking();
     _onRoute = false;
     await store.setOnRoute(false);
     await store.clearFix();
     _lastFix = null;
+    _lastAt = null;
     _lastReadFix = null;
     _errorMessage = null;
-    notifyListeners();
+    _notify();
 
     final uid = _vendorUid;
     if (uid == null) return;
@@ -125,53 +132,86 @@ class PresenceViewModel extends ChangeNotifier {
       );
     } on PresenceException catch (error) {
       _errorMessage = error.userMessage;
-      notifyListeners();
+      _notify();
     } catch (error, stack) {
       debugPrint('Leave route failed: ${error.runtimeType}');
       debugPrint('$stack');
       _errorMessage = 'No se pudo avisar que saliste de la ruta.';
-      notifyListeners();
+      _notify();
     }
   }
 
-  Future<void> retryPublish() => _publishTick(force: true);
+  Future<void> retryPublish() => _readAndPublish(force: true);
 
-  void _startTicker() {
-    _timer?.cancel();
-    _timer = Timer.periodic(PresencePolicy.localPoll, (_) {
-      unawaited(_publishTick());
+  void _startTracking() {
+    unawaited(_gpsSubscription?.cancel());
+    _gpsSubscription = location.watch().listen(
+      (fix) => unawaited(_onFix(fix)),
+      onError: (Object error, StackTrace stack) {
+        debugPrint('GPS stream failed: ${error.runtimeType}');
+        _errorMessage = 'El GPS se detuvo. Pulsa Reintentar ubicación.';
+        _notify();
+      },
+    );
+    _heartbeat?.cancel();
+    _heartbeat = Timer.periodic(heartbeatCheck, (_) {
+      final fix = _lastReadFix;
+      if (fix != null) unawaited(_publish(fix));
     });
   }
 
-  Future<void> _publishTick({bool force = false}) async {
-    if (!_onRoute) return;
-    final uid = _vendorUid;
-    if (uid == null) return;
+  Future<void> _stopTracking() async {
+    _heartbeat?.cancel();
+    _heartbeat = null;
+    await _gpsSubscription?.cancel();
+    _gpsSubscription = null;
+  }
 
-    final showLocating = force || _lastAt == null;
-    if (showLocating) {
-      _locating = true;
-      notifyListeners();
-    }
+  Future<void> _onFix(GeoFix fix) async {
+    if (!_onRoute) return;
+    _lastReadFix = fix;
+    _notify();
+    await _publish(fix);
+  }
+
+  Future<void> _readAndPublish({required bool force}) async {
+    if (!_onRoute) return;
+    _locating = true;
+    _notify();
     try {
       final fix = await location.readFix();
       if (fix == null) {
         _errorMessage = 'No pude leer el GPS. Inténtalo de nuevo.';
-        notifyListeners();
         return;
       }
       _lastReadFix = fix;
-      final stamp = _now();
-      if (!force &&
-          !PresencePolicy.shouldPublish(
-            lastFix: _lastFix,
-            lastAt: _lastAt,
-            next: fix,
-            now: stamp,
-          )) {
-        notifyListeners();
-        return;
-      }
+      await _publish(fix, force: force);
+    } catch (error, stack) {
+      debugPrint('Read GPS failed: ${error.runtimeType}');
+      debugPrint('$stack');
+      _errorMessage = 'No pude leer el GPS. Inténtalo de nuevo.';
+    } finally {
+      _locating = false;
+      _notify();
+    }
+  }
+
+  Future<void> _publish(GeoFix fix, {bool force = false}) async {
+    if (!_onRoute || _publishing) return;
+    final uid = _vendorUid;
+    if (uid == null) return;
+    final stamp = _now();
+    if (!force &&
+        !PresencePolicy.shouldPublish(
+          lastFix: _lastFix,
+          lastAt: _lastAt,
+          next: fix,
+          now: stamp,
+        )) {
+      return;
+    }
+    _publishing = true;
+    try {
       await remote.publish(
         uid,
         VendorPresence(onRoute: true, updatedAt: stamp, fix: fix),
@@ -184,34 +224,36 @@ class PresenceViewModel extends ChangeNotifier {
         longitude: fix.longitude,
         at: stamp,
       );
-      notifyListeners();
     } on PresenceException catch (error) {
       _errorMessage = error.userMessage;
-      notifyListeners();
     } catch (error, stack) {
       debugPrint('Publish presence failed: ${error.runtimeType}');
       debugPrint('$stack');
-      _errorMessage = 'Sin señal. Se intentará de nuevo en cinco minutos.';
-      notifyListeners();
+      _errorMessage = 'Sin señal. Se intentará de nuevo en un momento.';
     } finally {
-      _locating = false;
-      notifyListeners();
+      _publishing = false;
+      _notify();
     }
   }
 
   Future<void> _stopLocalOnly() async {
-    _timer?.cancel();
-    _timer = null;
+    await _stopTracking();
     _onRoute = false;
     await store.setOnRoute(false);
-    notifyListeners();
+    _notify();
+  }
+
+  void _notify() {
+    if (!_disposed) notifyListeners();
   }
 
   DateTime _now() => now?.call() ?? DateTime.now();
 
   @override
   void dispose() {
-    _timer?.cancel();
+    _disposed = true;
+    _heartbeat?.cancel();
+    unawaited(_gpsSubscription?.cancel());
     unawaited(_authSubscription.cancel());
     super.dispose();
   }

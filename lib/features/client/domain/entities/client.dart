@@ -12,6 +12,7 @@ final class Client {
     this.linkedUid = '',
     this.latitude,
     this.longitude,
+    this.balanceCents,
   });
 
   final String id;
@@ -30,6 +31,10 @@ final class Client {
   /// Pin de la casa. Los dos o ninguno.
   final double? latitude;
   final double? longitude;
+
+  /// Saldo que calcula la Cloud Function en la nube. Solo lo usa el
+  /// comprador (una lectura). El vendedor suma en su teléfono, sin señal.
+  final int? balanceCents;
 
   bool get isLinked => linkedUid.isNotEmpty;
 

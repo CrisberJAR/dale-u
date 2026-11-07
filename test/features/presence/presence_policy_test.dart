@@ -4,8 +4,11 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   const lima = GeoFix(latitude: -12.0464, longitude: -77.0428);
+  // ~11 m al sur: no cuenta como avance.
   const nearby = GeoFix(latitude: -12.0465, longitude: -77.0428);
+  // ~180 m al sur.
   const farther = GeoFix(latitude: -12.0480, longitude: -77.0428);
+  final t0 = DateTime(2026, 8, 30, 10);
 
   test('el primer punto siempre se publica', () {
     expect(
@@ -13,43 +16,55 @@ void main() {
         lastFix: null,
         lastAt: null,
         next: lima,
-        now: DateTime(2026, 8, 30, 10),
+        now: t0,
       ),
       isTrue,
     );
   });
 
-  test('antes de cinco minutos no escribe aunque se haya movido', () {
+  test('antes de 10 segundos no escribe aunque se haya movido', () {
     expect(
       PresencePolicy.shouldPublish(
         lastFix: lima,
-        lastAt: DateTime(2026, 8, 30, 10),
+        lastAt: t0,
         next: farther,
-        now: DateTime(2026, 8, 30, 10, 4),
+        now: t0.add(const Duration(seconds: 5)),
       ),
       isFalse,
     );
   });
 
-  test('a los cinco minutos, si no se movió, no escribe', () {
+  test('pasados 10 segundos y con avance de 15 m, sí escribe', () {
     expect(
       PresencePolicy.shouldPublish(
         lastFix: lima,
-        lastAt: DateTime(2026, 8, 30, 10),
+        lastAt: t0,
+        next: farther,
+        now: t0.add(const Duration(seconds: 12)),
+      ),
+      isTrue,
+    );
+  });
+
+  test('quieto no escribe hasta el latido', () {
+    expect(
+      PresencePolicy.shouldPublish(
+        lastFix: lima,
+        lastAt: t0,
         next: nearby,
-        now: DateTime(2026, 8, 30, 10, 5),
+        now: t0.add(const Duration(minutes: 3)),
       ),
       isFalse,
     );
   });
 
-  test('a los cinco minutos y lejos, sí escribe', () {
+  test('quieto, al llegar el latido escribe para seguir en el mapa', () {
     expect(
       PresencePolicy.shouldPublish(
         lastFix: lima,
-        lastAt: DateTime(2026, 8, 30, 10),
-        next: farther,
-        now: DateTime(2026, 8, 30, 10, 5),
+        lastAt: t0,
+        next: nearby,
+        now: t0.add(PresencePolicy.heartbeat),
       ),
       isTrue,
     );

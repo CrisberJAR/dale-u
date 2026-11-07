@@ -6,6 +6,7 @@ import 'package:dale_u/features/voice/domain/debt_voice_command.dart';
 import 'package:dale_u/features/voice/domain/ledger_voice_command.dart';
 import 'package:dale_u/features/voice/domain/new_client_voice_command.dart';
 import 'package:dale_u/features/voice/domain/search_voice_command.dart';
+import 'package:dale_u/features/voice/domain/undo_voice_command.dart';
 import 'package:dale_u/features/voice/domain/voice_capture_gateway.dart';
 import 'package:dale_u/features/voice/domain/voice_playback_gateway.dart';
 import 'package:flutter/foundation.dart';
@@ -24,6 +25,9 @@ typedef VoiceLedgerRecorder =
 typedef VoiceBalanceQuery =
     Future<({bool ok, String message})> Function({required String spokenName});
 
+/// Anula el último fiado o pago dicho por voz.
+typedef VoiceUndo = Future<({bool ok, String message})> Function();
+
 typedef VoiceSearchApplier =
     Future<({bool ok, String message})> Function({required String spokenQuery});
 
@@ -38,6 +42,7 @@ class VoiceCaptureViewModel extends ChangeNotifier {
     this.recordLedgerByVoice,
     this.queryBalanceByVoice,
     this.applySearchByVoice,
+    this.undoLastByVoice,
   });
 
   final VoiceCaptureGateway capture;
@@ -46,6 +51,7 @@ class VoiceCaptureViewModel extends ChangeNotifier {
   final VoiceLedgerRecorder? recordLedgerByVoice;
   final VoiceBalanceQuery? queryBalanceByVoice;
   final VoiceSearchApplier? applySearchByVoice;
+  final VoiceUndo? undoLastByVoice;
 
   VoiceCaptureStatus _status = VoiceCaptureStatus.idle;
   String _transcript = '';
@@ -156,6 +162,16 @@ class VoiceCaptureViewModel extends ChangeNotifier {
 
   Future<String> _replyForTurn() async {
     if (_transcript.isEmpty) return _errorMessage ?? '';
+
+    final undo = undoLastByVoice;
+    if (undo != null && UndoVoiceCommand.matches(_transcript)) {
+      final result = await undo();
+      if (!result.ok) {
+        _errorMessage = result.message;
+        notifyListeners();
+      }
+      return result.message;
+    }
 
     final newClient = NewClientVoiceCommand.tryParse(_transcript);
     if (newClient != null) {
